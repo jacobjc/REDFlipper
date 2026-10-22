@@ -38,8 +38,7 @@ ADVANCED OPTIONS (remembered between sessions)
 - Lock to Horizon (Stabilize Rotation): the main button becomes "Analyze & Stabilize". Instead of only flipping, levels the horizon on every frame.
   The camera's roll angle comes from its motion sensor: gravity (the accelerometer) says
   where level is, and the gyro follows fast turns, so whip pans and jolts don't knock the
-  horizon off. Each clip calibrates its gyro against gravity first; the log says whether it
-  did. A clip that barely turns borrows the last good calibration, or uses gravity alone.
+  horizon off. The log says per clip whether the gyro was used.
   Upside-down sections come out at 180 and small tilts are corrected too. One linear keyframe on every frame. Goes to the Transform, Motion or
   Source Clip like a flip. Disables cuts. Rotating
   shows the frame's corners; scale up to hide them.

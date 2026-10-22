@@ -30,14 +30,16 @@ const MIN_HOLD_S = 2.0;          // ignore orientation changes shorter than this
 // stabilize (level every frame) settings
 const STAB_SMOOTH_US = 50000;    // level angle = gravity averaged over ± 50 ms around each frame
 const ROLL_SIGN = 1;             // direction of the correction; -1 if leveling turns the wrong way
-// gyro (2.6.0): its unit and axis are unknown, so each clip calibrates it against the accelerometer
-const GYRO_WINDOW_BINS = 50;     // calibration compares turning over 0.5 s windows
-const GYRO_MIN_FIT = 0.8;        // correlation needed to trust a calibration
-const GYRO_MIN_SPREAD = 0.5;     // the clip must turn by at least this much (degrees, std per window)
-const FUSE_HALF_US = 1000000;
+// gyro (2.6.0): RED stores it as 0.1°/s on the accelerometer's axes (as Gyroflow reads it, and as
+// fitting it against gravity on Jacob's clips confirmed); motion rows hold the raw value / 100
+const GYRO_DEG_PER_UNIT = 10;    // row gyro value -> degrees per second
+const GYRO_CHECK_BINS = 200;     // sanity check: gyro vs gravity turning over 2 s windows
+const GYRO_CHECK_SPREAD = 2;     // ... only judged when the clip rolls this much (degrees, std per window)
+const GYRO_CHECK_FIT = 0.3;      // ... and the gyro is dropped if it agrees less than this
+const FUSE_HALF_US = 1000000;    // level from gravity on average over ± 1 s; the gyro carries faster moves
+const TILT_MIN_YZ = 0.1;         // tilt correction of the gyro until the lens is within ~6° of vertical
 const SHAKEN_G = 0.08;           // total acceleration this far from 1 g: gravity's direction isn't trusted
-const FUSE_OUTLIER_DEG = 2;      // gravity readings this far from the gyro's track are left out    // level from gravity on average over ± 1 s; the gyro carries faster moves
-let sessionGyroCal = null;       // last good calibration, for clips that barely turn
+const FUSE_OUTLIER_DEG = 2;      // gravity readings this far from the gyro's track are left out
 
 let busy = false;
 let stopRequested = false;
@@ -583,52 +585,52 @@ function gravityRoll(rows) {
   for (const r of rows) { sx.push(sx[sx.length - 1] + r[1]); sy.push(sy[sy.length - 1] + r[2]); sz.push(sz[sz.length - 1] + r[3]); }
   const out = new Array(n).fill(null);
   out.shaken = new Array(n).fill(false);
+  out.tilt = new Array(n).fill(null);   // [ty, tz]: how much turning about the Y and Z axes changes the roll
   for (let i = 0; i < n; i++) {
     const a = Math.max(0, i - half), b = Math.min(n, i + half + 1), k = b - a;
     const x = (sx[b] - sx[a]) / k, y = (sy[b] - sy[a]) / k, z = (sz[b] - sz[a]) / k;
-    if (Math.hypot(y, z) >= LENS_VERTICAL_YZ) out[i] = ROLL_SIGN * Math.atan2(y, z) * 180 / Math.PI;
+    const h = y * y + z * z;
+    if (Math.sqrt(h) >= LENS_VERTICAL_YZ) out[i] = ROLL_SIGN * Math.atan2(y, z) * 180 / Math.PI;
     out.shaken[i] = Math.abs(Math.hypot(x, y, z) - 1) > SHAKEN_G;
+    // tilt changes slowly; while the camera is shoved, keep the last steady reading
+    if (out.shaken[i] && i > 0) out.tilt[i] = out.tilt[i - 1];
+    else if (Math.sqrt(h) >= TILT_MIN_YZ) out.tilt[i] = [-x * y / h, -x * z / h];
   }
   return out;
 }
 
-// Fit gravity's turning over 0.5 s windows against each gyro axis: turn = scale · ∫gyro + offset.
-// Returns the best axis if it fits well enough, else null (with the reason).
-function calibrateGyro(rows, grav) {
-  const xs = [[], [], []], ys = [];
-  let w = 0, turn = 0, g = [0, 0, 0];
-  for (let i = 1; i < rows.length; i++) {
-    const ok = grav[i] !== null && grav[i - 1] !== null && rows[i][0] - rows[i - 1][0] === BIN_US;
-    if (!ok) { w = 0; turn = 0; g = [0, 0, 0]; continue; }
-    turn += wrap180(grav[i] - grav[i - 1]);
-    for (let a = 0; a < 3; a++) g[a] += rows[i][4 + a] * BIN_US / 1e6;
-    if (++w === GYRO_WINDOW_BINS) {
-      ys.push(turn); for (let a = 0; a < 3; a++) xs[a].push(g[a]);
-      w = 0; turn = 0; g = [0, 0, 0];
-    }
+// How fast the roll changes, from the gyro: with the lens level it's just the turning about the lens
+// axis, but tilted up or down, turning about the other two axes rolls the picture too:
+//   roll rate = ω_lens − a_lens·(a_side·ω_side + a_up·ω_up) / (a_side² + a_up²)   (a = gravity, ω = gyro)
+function gyroRate(row, tilt) {
+  return tilt ? row[4] + tilt[0] * row[5] + tilt[1] * row[6] : row[4];
+}
+
+// Checks the gyro against gravity (turning over 2 s windows, which averages out shoves) and
+// estimates its small constant offset. Returns { fit, bias } or { fail }.
+function checkGyro(rows, grav) {
+  const n = rows.length;
+  if (!rows.some((r) => r[4] || r[5] || r[6])) return { fail: "no gyro data" };
+  const scale = ROLL_SIGN * GYRO_DEG_PER_UNIT, cy = [0], cx = [0], ok = [0];
+  for (let i = 1; i < n; i++) {
+    const good = grav[i] !== null && grav[i - 1] !== null && rows[i][0] - rows[i - 1][0] === BIN_US;
+    cy.push(cy[i - 1] + (good ? wrap180(grav[i] - grav[i - 1]) : 0));
+    cx.push(cx[i - 1] + (good ? scale * gyroRate(rows[i], grav.tilt[i]) * BIN_US / 1e6 : 0));
+    ok.push(ok[i - 1] + (good ? 1 : 0));
   }
-  const n = ys.length;
-  if (n < 8) return { fail: "too little usable motion data" };
-  const mean = (v) => v.reduce((p, q) => p + q, 0) / v.length;
-  const my = mean(ys), vy = ys.reduce((p, y) => p + (y - my) ** 2, 0) / n;
-  if (Math.sqrt(vy) < GYRO_MIN_SPREAD) return { fail: "the camera barely turns" };
-  let best = null;
-  for (let a = 0; a < 3; a++) {
-    const mx = mean(xs[a]);
-    let vx = 0, cxy = 0;
-    for (let k = 0; k < n; k++) { vx += (xs[a][k] - mx) ** 2; cxy += (xs[a][k] - mx) * (ys[k] - my); }
-    vx /= n; cxy /= n;
-    if (vx <= 0) continue;
-    const r = cxy / Math.sqrt(vx * vy);
-    if (!best || Math.abs(r) > Math.abs(best.fit)) {
-      const scale = cxy / vx;   // degrees per (raw unit · second)
-      best = { axis: a, scale, offset: (my - scale * mx) / (GYRO_WINDOW_BINS * BIN_US / 1e6), fit: r, windows: n };
-    }
+  const xs = [], ys = [], W = GYRO_CHECK_BINS;
+  for (let i = 0; i + W < n; i += W / 4) if (ok[i + W] - ok[i] === W) { ys.push(cy[i + W] - cy[i]); xs.push(cx[i + W] - cx[i]); }
+  const k = ys.length;
+  if (k < 4) return { fit: null, bias: 0 };   // too short to judge
+  const mx = xs.reduce((a, b) => a + b, 0) / k, my = ys.reduce((a, b) => a + b, 0) / k;
+  let vx = 0, vy = 0, c = 0;
+  for (let j = 0; j < k; j++) { vx += (xs[j] - mx) ** 2; vy += (ys[j] - my) ** 2; c += (xs[j] - mx) * (ys[j] - my); }
+  const fit = vx > 0 && vy > 0 ? c / Math.sqrt(vx * vy) : null;
+  const bias = (my - mx) / (W * BIN_US / 1e6);   // degrees per second the gyro reads off
+  if (fit !== null && Math.sqrt(vy / k) >= GYRO_CHECK_SPREAD && fit < GYRO_CHECK_FIT) {
+    return { fail: `it doesn't agree with gravity (${Math.round(fit * 100)}%)`, fit };
   }
-  if (!best || Math.abs(best.fit) < GYRO_MIN_FIT) {
-    return { fail: `the gyro doesn't match gravity well enough (${best ? Math.round(Math.abs(best.fit) * 100) : 0}%)` };
-  }
-  return best;
+  return { fit, bias };
 }
 
 // roll per bin: gravity alone, or gyro + gravity when a calibration is given
@@ -643,36 +645,61 @@ function fusedRoll(rows, grav, cal) {
     return out;
   }
   // gyro angle (added up), and gravity's offset from it wherever gravity is usable
-  const G = new Float64Array(n), D = new Array(n).fill(null);
-  let off = null;
-  for (let i = 0; i < n; i++) {
-    if (i > 0) G[i] = G[i - 1] + (cal.scale * rows[i][4 + cal.axis] + cal.offset) * (rows[i][0] - rows[i - 1][0]) / 1e6;
-    if (grav[i] === null) continue;
-    let a = grav[i];
-    if (off !== null) a += 360 * Math.round((G[i] + off - a) / 360);
-    D[i] = off = a - G[i];
-  }
-  // average the offset over ±1 s, so it changes slowly. Gravity is left out while the camera is
-  // shoved around, and on a second pass wherever it strays from the gyro's track (hard moves).
-  const average = (use) => {
-    const sw = [0], sd = [0];
-    for (let i = 0; i < n; i++) { sw.push(sw[i] + (use(i) ? 1 : 0)); sd.push(sd[i] + (use(i) ? D[i] : 0)); }
-    const avg = new Array(n).fill(null);
-    let lo = 0, hi = 0;
+  const track = (tilt) => {
+    const G = new Float64Array(n), D = new Array(n).fill(null);
+    let off = null;
     for (let i = 0; i < n; i++) {
-      while (lo < n && rows[lo][0] < rows[i][0] - FUSE_HALF_US) lo++;
-      while (hi < n && rows[hi][0] <= rows[i][0] + FUSE_HALF_US) hi++;
-      const k = sw[hi] - sw[lo];
-      if (k > 0) avg[i] = (sd[hi] - sd[lo]) / k;
+      if (i > 0) G[i] = G[i - 1] + (cal.scale * gyroRate(rows[i], tilt[i]) + cal.offset) * (rows[i][0] - rows[i - 1][0]) / 1e6;
+      if (grav[i] === null) continue;
+      let a = grav[i];
+      if (off !== null) a += 360 * Math.round((G[i] + off - a) / 360);
+      D[i] = off = a - G[i];
+    }
+    return { G, D };
+  };
+  // average the offset over ±1 s, so it changes slowly. Gravity is left out while the camera is
+  // shoved around, and wherever it strays from the gyro's track (hard moves).
+  const smooth = (D) => {
+    const average = (use) => {
+      const sw = [0], sd = [0];
+      for (let i = 0; i < n; i++) { sw.push(sw[i] + (use(i) ? 1 : 0)); sd.push(sd[i] + (use(i) ? D[i] : 0)); }
+      const avg = new Array(n).fill(null);
+      let lo = 0, hi = 0;
+      for (let i = 0; i < n; i++) {
+        while (lo < n && rows[lo][0] < rows[i][0] - FUSE_HALF_US) lo++;
+        while (hi < n && rows[hi][0] <= rows[i][0] + FUSE_HALF_US) hi++;
+        const k = sw[hi] - sw[lo];
+        if (k > 0) avg[i] = (sd[hi] - sd[lo]) / k;
+      }
+      return avg;
+    };
+    const steady = (i) => D[i] !== null && !grav.shaken[i];
+    let avg = average(steady);
+    if (avg.some((v) => v === null)) avg = average((i) => D[i] !== null);   // nothing steady nearby: take what there is
+    // tighten step by step, so one big shove can't drag the average far enough to throw out good readings
+    for (const lim of [4 * FUSE_OUTLIER_DEG, 2 * FUSE_OUTLIER_DEG, FUSE_OUTLIER_DEG]) {
+      const prev = avg;
+      avg = average((i) => steady(i) && prev[i] !== null && Math.abs(D[i] - prev[i]) < lim);
+      for (let i = 0; i < n; i++) if (avg[i] === null) avg[i] = prev[i];
     }
     return avg;
   };
-  const steady = (i) => D[i] !== null && !grav.shaken[i];
-  let avg = average(steady);
-  if (avg.some((v) => v === null)) avg = average((i) => D[i] !== null);   // nothing steady nearby: take what there is
-  const first = avg;
-  avg = average((i) => steady(i) && first[i] !== null && Math.abs(D[i] - first[i]) < FUSE_OUTLIER_DEG);
-  for (let i = 0; i < n; i++) if (avg[i] === null) avg[i] = first[i];
+  let { G, D } = track(grav.tilt);
+  let avg = smooth(D);
+  // Where gravity strayed from the gyro (a shove the 1 g check missed), the tilt reading was off too:
+  // hold the last good tilt over those spans (and the ±50 ms they were averaged into), then redo.
+  const half = Math.round(STAB_SMOOTH_US / BIN_US), shoved = new Array(n).fill(false);
+  for (let i = 0; i < n; i++) {
+    if (D[i] !== null && avg[i] !== null && Math.abs(D[i] - avg[i]) >= 2 * FUSE_OUTLIER_DEG) {
+      for (let k = Math.max(0, i - half); k <= Math.min(n - 1, i + half); k++) shoved[k] = true;
+    }
+  }
+  if (shoved.some((x) => x)) {
+    const tilt = grav.tilt.slice();
+    for (let i = 1; i < n; i++) if (shoved[i]) tilt[i] = tilt[i - 1];
+    ({ G, D } = track(tilt));
+    avg = smooth(D);
+  }
   // no usable gravity within ±1 s (e.g. a long overhead): keep the nearest offset, follow the gyro
   let last = null;
   for (let i = 0; i < n; i++) { if (avg[i] === null) avg[i] = last; else last = avg[i]; }
@@ -684,14 +711,10 @@ function fusedRoll(rows, grav, cal) {
 }
 
 // One key on every frame, however small the change. Returns { keys, gyro } or null.
-function rollKeys(clip) {
+function rollKeys(clip, use) {
   const { rows, frames: total, frame0, recordFps } = clip;
   if (!rows || !rows.length || frame0 === null || !total) return null;
-  const grav = gravityRoll(rows);
-  const hasGyro = rows[0].length > 4;
-  const cal = hasGyro ? calibrateGyro(rows, grav) : { fail: "no gyro data" };
-  const from = cal.fail && hasGyro ? sessionGyroCal : null;
-  const use = cal.fail ? (from ? from.cal : null) : cal;
+  const grav = clip.grav || (clip.grav = gravityRoll(rows));
   const roll = fusedRoll(rows, grav, use);
   if (roll.every((v) => v === null)) return null;
 
@@ -714,18 +737,23 @@ function rollKeys(clip) {
     if (vals[f] !== null) prev = vals[f];
     keys.push({ frame: f, value: Math.round(prev * 1000) / 1000 });
   }
-  return { keys, gyro: cal.fail ? { fail: cal.fail, from: from && from.name } : cal };
+  return keys;
 }
 
 // The stabilize plan for an analysed clip (computed once, kept with the cached analysis).
-function stabPlan(result, name) {
+function stabPlan(result) {
   const k = result.plan.kind;
   if (k === "error" || k === "nodata") return result.plan;
   if (!result.stab) {
-    const r = rollKeys(result.clip);
-    if (r && !r.gyro.fail && Math.abs(r.gyro.fit) >= 0.9) sessionGyroCal = { cal: r.gyro, name };
-    result.stab = r ? { kind: "stab", gyro: r.gyro, keys: r.keys.map((x) => ({ ...x, tc: tc(x.frame, result.fpsNum, result.fpsDen) })) }
-                    : { kind: "nodata" };
+    const clip = result.clip;
+    let gyro = { fail: "no motion data" }, keys = null;
+    if (clip && clip.rows && clip.rows.length) {
+      const grav = clip.grav || (clip.grav = gravityRoll(clip.rows));
+      gyro = clip.rows[0].length > 4 ? checkGyro(clip.rows, grav) : { fail: "no gyro data" };
+      keys = rollKeys(clip, gyro.fail ? null : { scale: ROLL_SIGN * GYRO_DEG_PER_UNIT, offset: gyro.bias });
+    }
+    result.stab = keys ? { kind: "stab", gyro, keys: keys.map((x) => ({ ...x, tc: tc(x.frame, result.fpsNum, result.fpsDen) })) }
+                       : { kind: "nodata" };
   }
   return result.stab;
 }
@@ -733,9 +761,8 @@ function stabPlan(result, name) {
 // log line on how a clip's horizon was found
 function gyroNote(name, g) {
   if (!g) return;
-  if (!g.fail) log(`${name}: gyro calibrated against gravity (axis ${"XYZ"[g.axis]}, ${Math.round(Math.abs(g.fit) * 100)}% match). Leveling uses gyro + gravity.`, "dim");
-  else if (g.from) log(`${name}: gyro not calibrated here (${g.fail}); using the calibration from ${g.from}.`, "dim");
-  else log(`${name}: gyro not used (${g.fail}). Leveling from gravity only.`, /barely turns/.test(g.fail) ? "dim" : "warn");
+  if (!g.fail) log(`${name}: leveling uses gyro + gravity.`, "dim");
+  else log(`${name}: gyro not used (${g.fail}). Leveling from gravity only.`, "warn");
 }
 
 // ------------------------------------------------------------------ Premiere helpers
@@ -1173,7 +1200,7 @@ async function analyseAndFlip() {
   // one entry per source clip, holding its timeline clips in scope and its own (Source) effects
   const sources = new Map();
   for (const t of c.targets) {
-    t.plan = stabilize ? stabPlan(t.result, t.name) : t.result.plan;
+    t.plan = stabilize ? stabPlan(t.result) : t.result.plan;
     if (!sources.has(t.path)) {
       if (stabilize) gyroNote(t.name, t.plan.gyro);
       sources.set(t.path, { name: t.name, cpi: t.cpi, inPoint: t.inPoint, result: t.result, plan: t.plan, targets: [],

@@ -148,14 +148,20 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   within 0.05° of a straight line), LINEAR interpolation. `stabPlan(result)` caches it on the analysis result (which keeps `clip`
   rows). Plan kind "stab" flows through the same apply path as "mixed" (any mode), cuts off. Fast Analysis is fine
   (same motion samples as Frame-by-Frame); 2.5.0 forced FBF, dropped in 2.5.1 at Jacob's request.
-- Gyro fusion (2.6.0): reader keeps gyro X/Y/Z per bin (rows = [t, ax, ay, az, gx, gy, gz]). The unit/axis are
-  undocumented, so `calibrateGyro` fits gravity's roll change over 0.5 s windows against ∫gyro for each axis
-  (least squares with offset; best |correlation| ≥ 0.8 and ≥ 0.5° std of turning). `fusedRoll`: gyro angle G +
-  gravity offset (gravity − G) averaged over ±1 s, leaving out bins where |accel| is > 0.08 g off 1 g (shoved) and,
-  on a second pass, readings > 2° off the first average. No gravity within ±1 s (overheads): follows the gyro.
-  A clip that can't calibrate uses the session's last calibration with ≥ 0.9 fit (`sessionGyroCal`), else gravity
-  only (2.5.x behaviour). `gyroNote` logs which per clip. Synthetic test (scratchpad gyrotest.js): ±0.5 g jolts
-  gave 27.7° max error gravity-only, 0.24° fused. Not yet checked against real RED gyro data.
+- Gyro fusion (2.6.0, reworked 2.6.1): reader keeps gyro X/Y/Z per bin (rows = [t, ax, ay, az, gx, gy, gz], gyro = raw/100).
+  RED's raw gyro is 0.1 deg/s on the accelerometer's axes (Gyroflow reads it as raw/10 deg/s, orientation "zyx" for
+  both); confirmed on Jacob's A002 clips (K:\01_VIDEO\2026_09_29): fitted slope ~10 per row unit, identity axes.
+  2.6.0 tried to calibrate unit/axes per clip over 0.5 s windows and failed on real footage (fits 33-73%): gravity is
+  too shaken at that timescale (handheld/gimbal footage barely rolls; lateral accelerations dominate).
+  Roll rate from the gyro must account for tilt: `gyroRate` = gx + ty·gy + tz·gz with (ty, tz) = −ax·(ay, az)/(ay²+az²)
+  (from da/dt = −ω×a); without it pans leak into roll on tilted shots (A016, ax 0.64: fit 0.96 with, −0.56 without).
+  `checkGyro`: correlation of gravity vs gyro roll change over 2 s windows (A012–A026: 0.6–0.96) + constant bias;
+  gyro dropped only if no gyro data, or the clip rolls ≥ 2° (std per window) and fit < 0.3. `fusedRoll`: gyro angle G +
+  gravity offset (gravity − G) averaged over ±1 s, leaving out bins with |accel| > 0.08 g off 1 g and readings straying
+  from the gyro track (iterated 8°/4°/2°); tilt held over strays and G recomputed. On Jacob's clips the fused roll is
+  ~10× less jittery than gravity alone; gravity was off by up to 16.5° during shoves (A026). Tests in scratchpad:
+  gyrotest.js, gyro3d.js (3D rotations), real.js/realfuse.js (Jacob's CSVs). `tools/extract-motion.ps1` in project
+  files dumps a clip's motion data to CSV (index + RDX blocks only).
 - ROLL_SIGN = 1 is a guess
   (axis direction of +Y unconfirmed; 2.5.4 tried -1, reverted in 2.5.5 at Jacob's request). Confirm on a tilted shot.
 - Undo in Motion mode with Stabilize on treats any keyframed Motion rotation as REDFlipper's (`isMotionFlip(..., true)`).
