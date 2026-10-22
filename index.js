@@ -81,6 +81,7 @@ function setOpt(id, on) {
     if (opt("optSource")) $(dep).classList.add("overridden"); else $(dep).classList.remove("overridden");
   }
   try { localStorage.setItem(`redflipper.${id}`, on ? "1" : "0"); } catch (e) { /* not remembered */ }
+  $("undoInfo").textContent = undoText();
 }
 
 function loadOptions() {
@@ -93,6 +94,21 @@ function loadOptions() {
 
 // where the rotation goes: "transform" (default), "motion" or "source"
 const applyMode = () => (opt("optSource") ? "source" : opt("optMotion") ? "motion" : "transform");
+
+// What "Remove Rotation" does with the current options; shown at the bottom of Advanced.
+function undoText() {
+  const mode = applyMode();
+  let text = {
+    transform: "removes REDFlipper's Transform effect from the clips in scope. Motion and Source Clip effects are left alone.",
+    motion: "resets Motion > Rotation to 0° and clears its keyframes on the clips in scope (only where it holds a 0°/180° flip). " +
+            "A rotation you had there before it was overwritten comes back only with Ctrl+Z. Transform effects are left alone.",
+    source: "removes the Source Transform from the source clips of the clips in scope, so every instance in the project " +
+            "goes back to upright. Timeline effects are left alone.",
+  }[mode];
+  if (opt("optCuts") && mode !== "source") text += " Cuts stay: use Ctrl+Z, or right-click a cut > Join Through Edits.";
+  if (opt("optForceFbf")) text += " (Force Frame-by-Frame Analysis doesn't change undo.)";
+  return "Undo (Remove Rotation): " + text;
+}
 
 // scope switch: on = selected clips only, off = every clip in the active sequence
 const selectedOnly = () => $("scopeSwitch").classList.contains("on");
@@ -903,45 +919,55 @@ async function analyseAndFlip() {
       `. To Undo, use “Remove Rotation”.`, bad.size ? "warn" : "ok");
 }
 
+// Remove Rotation only undoes what the current options apply (see undoText): REDFlipper's
+// Transform by default, Motion > Rotation with the Motion option, the Source Transform with the
+// Source option. Cuts are never rejoined (the API has no way to).
 async function removeRotation() {
   startRun("Remove Rotation");
+  const mode = applyMode();
   const c = await collect();
   if (!c.targets.length) return log("Done: 0 clip(s) updated. No RED clips in scope.", "ok");
+  const updated = new Set();
+  let failed = [], found = 0, summary = "";
 
-  // REDFlipper's Transform on timeline clips
-  const withTransform = c.targets.filter((t) => t.scan.ours);
-  const f1 = runPhase(c.project, "remove Transform", withTransform,
-    (t) => [t.scan.chain.createRemoveComponentAction(t.scan.ours.component)]);
-
-  // Motion > Rotation flips (the Motion option, or version 1.0 of this panel)
-  const motion = [];
-  for (const t of c.targets) if (await isMotionFlip(t.scan.motionRotation, t.inPoint)) motion.push(t);
-  const f2 = runPhase(c.project, "reset Motion rotation", motion, (t) => [t.scan.motionRotation.createSetTimeVaryingAction(false)]);
-  const f3 = runPhase(c.project, "reset Motion rotation", motion.filter((t) => !f2.includes(t)),
-    (t) => [t.scan.motionRotation.createSetValueAction(t.scan.motionRotation.createKeyframe(0), true)]);
-
-  // Source Transforms: removing one affects every instance of that clip in the project
-  const sources = new Map();
-  for (const t of c.targets) {
-    if (sources.has(t.path)) { sources.get(t.path).targets.push(t); continue; }
-    sources.set(t.path, { name: t.name, targets: [t], scan: await scanChain(await sourceChain(t.cpi), t.inPoint) });
+  if (mode === "transform") {
+    const withTransform = c.targets.filter((t) => t.scan.ours);
+    failed = runPhase(c.project, "remove Transform", withTransform,
+      (t) => [t.scan.chain.createRemoveComponentAction(t.scan.ours.component)]);
+    withTransform.filter((t) => !failed.includes(t)).forEach((t) => updated.add(t));
+    found = withTransform.length;
+    summary = `Removed the REDFlipper Transform from ${updated.size} clip(s).`;
+  } else if (mode === "motion") {
+    // Motion > Rotation holding a flip: static 180, or keyframed with only 0/180 values
+    const motion = [];
+    for (const t of c.targets) if (await isMotionFlip(t.scan.motionRotation, t.inPoint)) motion.push(t);
+    const f1 = runPhase(c.project, "reset Motion rotation", motion, (t) => [t.scan.motionRotation.createSetTimeVaryingAction(false)]);
+    const f2 = runPhase(c.project, "reset Motion rotation", motion.filter((t) => !f1.includes(t)),
+      (t) => [t.scan.motionRotation.createSetValueAction(t.scan.motionRotation.createKeyframe(0), true)]);
+    failed = [...f1, ...f2];
+    motion.filter((t) => !failed.includes(t)).forEach((t) => updated.add(t));
+    found = motion.length;
+    summary = `Reset Motion rotation to 0° on ${updated.size} clip(s).`;
+  } else {
+    // removing a Source Transform affects every instance of that clip in the project
+    const sources = new Map();
+    for (const t of c.targets) {
+      if (sources.has(t.path)) { sources.get(t.path).targets.push(t); continue; }
+      sources.set(t.path, { name: t.name, targets: [t], scan: await scanChain(await sourceChain(t.cpi), t.inPoint) });
+    }
+    const withSource = [...sources.values()].filter((s) => s.scan.ours);
+    failed = runPhase(c.project, "remove Source Transform", withSource,
+      (s) => [s.scan.chain.createRemoveComponentAction(s.scan.ours.component)]);
+    withSource.filter((s) => !failed.includes(s)).forEach((s) => s.targets.forEach((t) => updated.add(t)));
+    found = withSource.length;
+    summary = `Removed the Source Transform from ${withSource.length - failed.length} source clip(s) (all instances).`;
   }
-  const withSource = [...sources.values()].filter((s) => s.scan.ours);
-  const f4 = runPhase(c.project, "remove Source Transform", withSource,
-    (s) => [s.scan.chain.createRemoveComponentAction(s.scan.ours.component)]);
 
-  [...f1, ...f2, ...f3, ...f4].forEach((t) => log(`${t.name}: failed (locked track?)`, "err"));
-  const updated = new Set([...withTransform.filter((t) => !f1.includes(t)), ...motion.filter((t) => !f2.includes(t) && !f3.includes(t))]);
-  withSource.filter((s) => !f4.includes(s)).forEach((s) => s.targets.forEach((t) => updated.add(t)));
-  if (!withTransform.length && !motion.length && !withSource.length) {
-    return log("Done: 0 clip(s) updated. No REDFlipper rotation found on RED clips in scope.", "ok");
-  }
-  const parts = [];
-  if (withTransform.length) parts.push(`removed the REDFlipper Transform from ${withTransform.length - f1.length} clip(s)`);
-  if (motion.length) parts.push(`reset Motion rotation on ${motion.length - f2.length - f3.length} clip(s)`);
-  if (withSource.length) parts.push(`removed the Source Transform from ${withSource.length - f4.length} source clip(s) (all instances)`);
-  log(`Done: ${updated.size} clip(s) updated. ${parts.join("; ").replace(/^./, (x) => x.toUpperCase())}.`, "ok");
-  if (opt("optCuts")) log("Cuts added at flip points stay in place: use Ctrl+Z, or right-click a cut > Join Through Edits.", "dim");
+  failed.forEach((t) => log(`${t.name}: failed (locked track?)`, "err"));
+  const what = { transform: "REDFlipper Transform", motion: "REDFlipper Motion rotation", source: "Source Transform" }[mode];
+  if (!found) log(`Done: 0 clip(s) updated. No ${what} found on RED clips in scope.`, "ok");
+  else log(`Done: ${updated.size} clip(s) updated. ${summary}`, failed.length ? "warn" : "ok");
+  if (opt("optCuts") && mode !== "source") log("Cuts added at flip points stay in place: use Ctrl+Z, or right-click a cut > Join Through Edits.", "dim");
 }
 
 // ------------------------------------------------------------------ wire up

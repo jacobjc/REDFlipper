@@ -11,7 +11,10 @@ USE
   active sequence.
 - Analyze & Flip: reads each RED clip's motion data straight from its .R3D files,
   works out which sections are upside-down, and corrects them.
-- Remove Rotation: removes REDFlipper's correction from the clips in scope.
+- Remove Rotation: removes REDFlipper's correction from the clips in scope. It only undoes
+  what the current Advanced options apply (the bottom of the Advanced section explains it):
+  the Transform by default, Motion > Rotation with the Motion option, the Source Transform
+  with the Source option.
 - Stop: cancels a long analysis before anything is changed.
 - The log keeps every line from earlier runs; scroll up to read them.
   "Fast Analysis" (blue) reads only the motion blocks listed in each R3D chunk's index.
@@ -29,6 +32,8 @@ ADVANCED OPTIONS (remembered between sessions)
   copy of the clip at the flip point (which splits it) and ripple-deleting the copy; both
   halves keep all effects. Remove Rotation does not rejoin cuts: use Ctrl+Z, or right-click
   the cut > Join Through Edits.
+- Analyze & Flip still clears REDFlipper rotation from the other places (Transform, Motion,
+  Source) where it would flip a clip twice.
 Nothing is written to disk. Motion data read during a Premiere session is kept in
 memory, so running again doesn't re-read the clips.
 

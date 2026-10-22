@@ -102,7 +102,9 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   `ClipProjectItem.getComponentChain(MediaType.VIDEO)`, all instances). Each run first removes REDFlipper rotation
   that would double-flip (Transform in Motion mode, Motion flip in Transform mode, timeline flips in Source mode);
   in Transform/Motion mode a source that already has a Source Transform is skipped with a warning. Upright clips
-  get every level cleaned. Remove Rotation clears all three.
+  get every level cleaned. Remove Rotation (2.4.1) only undoes the current mode's level: Transform by default,
+  Motion flip with `optMotion`, Source Transform with `optSource`; `#undoInfo` (bottom of Advanced, `undoText()`)
+  explains the current undo and updates on every option change.
 - Cuts (`optCuts`, not in Source mode): the UXP API has no razor (Adobe: not planned for 1.0). `cutAt` uses
   `SequenceEditor.createCloneTrackItemAction(item, offset, 0, 0, true, isInsert=true)` at the flip point (an insert
   splits the clip there), then finds the copy (starts at the cut with the original's in point) plus any audio at the
