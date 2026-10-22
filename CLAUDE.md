@@ -18,21 +18,23 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
 - `icons/` — plugin + panel icons. `redflipper.svg` is the source (flippers icon by Anna Pasechnaia,
   Noun Project, CC BY 3.0, credited in README); the PNGs (panel 23/46, plugin 48/96, header 64) are rendered
   from it, cropped to a square. `README.txt` — user-facing notes.
-- The installable `REDFlipper.ccx` lives one folder up (`C:\Users\Jacob\Videos\Plugins`).
+- Builds are named `REDFlipper-v<version>.ccx` and saved one folder up (`C:\Users\Jacob\Videos\Plugins`);
+  the newest one is attached to the matching GitHub release.
 
 ## Build & install (Windows)
 A .ccx is a zip with manifest.json at the root. Use bsdtar (forward-slash entry names);
 avoid PowerShell's Compress-Archive, which can write backslash paths.
 ```powershell
 cd C:\Users\Jacob\Videos\Plugins\RedFlip
+$v = (Get-Content manifest.json | ConvertFrom-Json).version
 tar -a -c -f ..\REDFlipper.zip manifest.json index.html index.js icons
-Move-Item -Force ..\REDFlipper.zip ..\REDFlipper.ccx
+Move-Item -Force ..\REDFlipper.zip "..\REDFlipper-v$v.ccx"
 # verify the version inside before installing (a stale package was installed once)
-tar -xOf ..\REDFlipper.ccx manifest.json | Select-String '"version"'
+tar -xOf "..\REDFlipper-v$v.ccx" manifest.json | Select-String '"version"'
 # install (close Premiere first)
 $upia = "C:\Program Files\Common Files\Adobe\Adobe Desktop Common\RemoteComponents\UPI\UnifiedPluginInstallerAgent\UnifiedPluginInstallerAgent.exe"
 & $upia /remove "REDFlipper"
-& $upia /install "C:\Users\Jacob\Videos\Plugins\REDFlipper.ccx"
+& $upia /install "C:\Users\Jacob\Videos\Plugins\REDFlipper-v$v.ccx"
 & $upia /list all | Select-String "REDFlipper"
 ```
 On this machine: UXP Developer Tool never saw Premiere ("No applications are connected"), and
