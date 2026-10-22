@@ -1,21 +1,21 @@
 REDFlipper - Premiere Pro panel
 ===============================
 
-INSTALL / UPDATE (close Premiere first), in PowerShell:
-  $upia = "C:\Program Files\Common Files\Adobe\Adobe Desktop Common\RemoteComponents\UPI\UnifiedPluginInstallerAgent\UnifiedPluginInstallerAgent.exe"
-  & $upia /remove "REDFlipper"
-  & $upia /install "<path to>\REDFlipper.ccx"
-Then in Premiere: Window > UXP Plugins > REDFlipper.
+INSTALL / UPDATE
+- Download REDFlipper.ccx and double-click it. Creative Cloud installs the plugin
+  (close Premiere first when updating).
+- Then in Premiere: Window > UXP Plugins > REDFlipper.
 
 USE
-- Select clips (or untick "Selected clips only" for the whole active sequence).
+- Select clips, or switch off "Selected clips only" to work on every clip in the
+  active sequence.
 - Analyze & Flip: reads each RED clip's motion data straight from its .R3D files,
   works out which sections are upside-down, and corrects them.
-- Preview: same analysis, lists what would change, changes nothing.
-- Remove rotation: removes REDFlipper's correction from the clips in scope.
+- Remove Rotation: removes REDFlipper's correction from the clips in scope.
 - Stop: cancels a long analysis before anything is changed.
+- Advanced: more options (coming in a later version).
 Nothing is written to disk. Motion data read during a Premiere session is kept in
-memory, so running again (or Preview then Analyze & Flip) doesn't re-read the clips.
+memory, so running again doesn't re-read the clips.
 
 WHAT IT DOES
 - Adds a Transform effect to each upside-down RED clip and sets its Rotation:
@@ -34,3 +34,7 @@ HOW IT DECIDES
 - Changes shorter than 2 seconds (of playback) are ignored, so a camera hovering
   near 90 degrees doesn't cause rapid flips.
 - Needs clips from KOMODO 1.7+, KOMODO-X, or V-RAPTOR 1.2+ firmware (motion data).
+
+CREDITS
+- by Jacob J. Christiansen
+- Flippers icon by Anna Pasechnaia from Noun Project (CC BY 3.0)

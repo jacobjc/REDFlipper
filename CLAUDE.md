@@ -10,10 +10,14 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
 - `manifest.json` — id `com.jacobchristiansen.redflip`, name `REDFlipper`, version (bump every release;
   the panel shows it next to the title), host `premierepro` min 25.6.0, `localFileSystem: fullAccess`
   (needed: the plugin opens R3Ds itself).
-- `index.html` — panel UI: "Selected clips only" checkbox; Analyze & Flip, Preview, Remove rotation, Stop;
-  status line, per-clip progress bar, log.
+- `index.html` — panel UI: icon + title/version + "by Jacob J. Christiansen"; "Selected clips only" toggle
+  switch (a styled div, `.on` class = selected only; off = whole sequence); Analyze & Flip, Remove Rotation,
+  Stop; Advanced button revealing a placeholder section (options TBD); status line, per-clip progress bar, log
+  (fills remaining height). Preview was removed in 2.3.0.
 - `index.js` — everything else (R3D reader, analysis, Premiere edits). Plain JS, no build step.
-- `icons/` — plugin + panel icons. `README.txt` — user-facing notes.
+- `icons/` — plugin + panel icons. `redflipper.svg` is the source (flippers icon by Anna Pasechnaia,
+  Noun Project, CC BY 3.0, credited in README); the PNGs (panel 23/46, plugin 48/96, header 64) are rendered
+  from it, cropped to a square. `README.txt` — user-facing notes.
 - The installable `REDFlipper.ccx` lives one folder up (`C:\Users\Jacob\Videos\Plugins`).
 
 ## Build & install (Windows)
