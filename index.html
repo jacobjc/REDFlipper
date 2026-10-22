@@ -33,6 +33,7 @@
     .optText { flex: 1 1 auto; }
     .opt.overridden { opacity: 0.45; }
     .note { color: #999; }
+    #backupInfo { color: #999; margin-top: 10px; white-space: pre-line; overflow-wrap: anywhere; word-break: break-all; }
     #undoInfo { color: #999; border-top: 1px solid #444; margin-top: 6px; padding-top: 5px; }
     #status { color: var(--uxp-host-text-color-secondary, #aaa); min-height: 16px; margin: 4px 0 4px; }
     #progressWrap { height: 4px; background: #3a3a3a; border-radius: 2px; overflow: hidden; margin: 0 0 8px; }
@@ -85,10 +86,11 @@
       <div class="optText">Add Cut at each Flip Point
         <span class="warning">(Warning: Ignored if “Apply Rotation to Source Clip” is enabled.)</span></div></div>
     <div class="opt" id="optAutoSave" role="checkbox" aria-checked="false"><div class="box"></div>
-      <div class="optText">Auto-Save project before applying changes
+      <div class="optText">Auto-Backup Project
         <span class="note">(Saves the project, then puts a timestamped copy in the “Adobe Premiere Pro Auto-Save”
         folder next to it.)</span></div></div>
     <div id="undoInfo"></div>
+    <div id="backupInfo"></div>
   </div>
   <div id="status"></div>
   <div id="progressWrap" class="hidden"><div id="progressBar"></div></div>

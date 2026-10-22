@@ -70,7 +70,7 @@ function status(msg) { $("status").textContent = msg || ""; }
 // ------------------------------------------------------------------ advanced options
 
 const OPTIONS = ["optForceFbf", "optMotion", "optSource", "optCuts", "optAutoSave"];
-const DEFAULT_ON = new Set(["optAutoSave"]);   // checked until the editor unticks it
+const DEFAULT_ON = new Set(["optAutoSave"]);   // Auto-Backup Project: checked until the editor unticks it
 const opt = (id) => $(id).classList.contains("on");
 
 function setOpt(id, on) {
@@ -83,6 +83,7 @@ function setOpt(id, on) {
   }
   try { localStorage.setItem(`redflipper.${id}`, on ? "1" : "0"); } catch (e) { /* not remembered */ }
   $("undoInfo").textContent = undoText();
+  refreshBackupInfo();
 }
 
 function loadOptions() {
@@ -110,7 +111,6 @@ function undoText() {
             "goes back to upright. Timeline effects are left alone.",
   }[mode];
   if (opt("optCuts") && mode !== "source") text += " Cuts stay: use Ctrl+Z, or right-click a cut > Join Through Edits.";
-  if (opt("optAutoSave")) text += " A copy of the project from just before each run is in the “Adobe Premiere Pro Auto-Save” folder.";
   if (opt("optForceFbf")) text += " (Force Frame-by-Frame Analysis doesn't change undo.)";
   return "Undo (Remove Rotation): " + text;
 }
@@ -150,6 +150,7 @@ async function guarded(fn) {
     progress(null);
     for (const id of ["flip", "remove"]) $(id).disabled = false;
     $("stop").disabled = true;
+    refreshBackupInfo();
   }
 }
 
@@ -576,29 +577,54 @@ async function copyTo(src, dest) {
   try { await fs.writeFile(dest, data); } catch (e) { await fs.writeFile(asUrl(dest), data); }
 }
 
-// Saves the project (like Ctrl+S) and puts a timestamped copy in the "Adobe Premiere Pro
-// Auto-Save" folder next to it, where Premiere keeps its own auto-saves. The plugin can't
-// trigger Premiere's own auto-save, and only a saved file holds the project's current state.
-async function autoSave(project) {
+// Backups go in the "Adobe Premiere Pro Auto-Save" folder next to the project, where Premiere
+// keeps its own auto-saves, named <project>-REDFlipper-YYYY-MM-DD_HH-MM-SS.prproj.
+function backupLocation(projectPath) {
+  const s = sep(projectPath);
+  return { s, dir: projectPath.slice(0, projectPath.lastIndexOf(s)) + s + "Adobe Premiere Pro Auto-Save",
+           prefix: projectPath.slice(projectPath.lastIndexOf(s) + 1).replace(/\.prproj$/i, "") + "-REDFlipper-" };
+}
+
+// Auto-Backup: saves the project (like Ctrl+S) and copies it into the backup folder. A plugin
+// can't trigger Premiere's own auto-save, and only the saved file holds the project's current state.
+async function autoBackup(project) {
   const p = project.path;
-  if (!p) return log("Auto-Save skipped: this project hasn't been saved yet.", "warn");
-  status("Saving project…");
+  if (!p) return log("Backup skipped: this project hasn't been saved yet.", "warn");
+  log("Backing up current project...");
+  status("Backing up current project…");
   let saved;
   try { saved = await project.save(); } catch (e) { saved = false; }
-  if (saved === false) return log("Auto-Save failed: Premiere didn't save the project. Continuing without a backup.", "warn");
-  const s = sep(p);
-  const dir = p.slice(0, p.lastIndexOf(s)) + s + "Adobe Premiere Pro Auto-Save";
-  const base = p.slice(p.lastIndexOf(s) + 1).replace(/\.prproj$/i, "");
+  if (saved === false) return log("Backup failed: Premiere didn't save the project. Continuing without a backup.", "warn");
+  const { s, dir, prefix } = backupLocation(p);
   const d = new Date(), z = (n) => String(n).padStart(2, "0");
-  const name = `${base}-REDFlipper-${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}_` +
+  const dest = `${dir}${s}${prefix}${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}_` +
                `${z(d.getHours())}-${z(d.getMinutes())}-${z(d.getSeconds())}.prproj`;
   try {
     await makeDir(dir);
-    await copyTo(p, dir + s + name);
-    log(`Auto-Saved: project saved, copy in Adobe Premiere Pro Auto-Save${s}${name}`, "dim");
+    await copyTo(p, dest);
+    log(`Backup saved to ${dest}`, "dim");
   } catch (e) {
-    log(`Project saved, but the Auto-Save copy failed (${e && e.message ? e.message : e}). Continuing.`, "warn");
+    log(`Project saved, but the backup copy failed (${e && e.message ? e.message : e}). Continuing.`, "warn");
   }
+}
+
+// Backup paragraph under the undo text in Advanced: folder and the newest backup's time.
+async function refreshBackupInfo() {
+  let where = "(save the project first)", last = "none yet";
+  try {
+    const project = await ppro.Project.getActiveProject();
+    if (project && project.path) {
+      const { dir, prefix } = backupLocation(project.path);
+      where = dir;
+      let names = [];
+      try { names = (await listDir(dir)).map((e) => (typeof e === "string" ? e : e.name)); } catch (e) { /* no folder yet */ }
+      const newest = names.filter((n) => n.startsWith(prefix) && /\.prproj$/i.test(n)).sort().pop();
+      const m = newest && newest.slice(prefix.length).match(/^(\d{4}-\d\d-\d\d)_(\d\d)-(\d\d)-(\d\d)/);
+      if (m) last = `${m[1]} ${m[2]}:${m[3]}:${m[4]}`;
+    } else if (!project) where = "(no project open)";
+  } catch (e) { /* keep defaults */ }
+  $("backupInfo").textContent = "REDFlipper auto-backups your project every time “Analyze & Flip” is used (unless disabled).\n" +
+    `Backups are located at: ${where}\nLast backup: ${last}`;
 }
 
 // ------------------------------------------------------------------ collect + analyse
@@ -853,7 +879,7 @@ async function analyseAndFlip() {
   log(`Applying: ${nInv} whole-clip flip(s), ${units.length - nInv} mid-take flip ${what}` +
       (cleaned.size ? `, ${cleaned.size} upright clip(s) cleaned up` : "") + " …");
 
-  if (opt("optAutoSave")) await autoSave(project);
+  if (opt("optAutoSave")) await autoBackup(project);
   status("Applying rotation…");
 
   const bad = new Set();
@@ -987,7 +1013,6 @@ async function removeRotation() {
   if (!c.targets.length) return log("Done: 0 clip(s) updated. No RED clips in scope.", "ok");
   const updated = new Set();
   let failed = [], found = 0, summary = "";
-  if (opt("optAutoSave")) await autoSave(c.project);
 
   if (mode === "transform") {
     const withTransform = c.targets.filter((t) => t.scan.ours);
@@ -1048,4 +1073,5 @@ $("advancedToggle").addEventListener("click", () => {
   const open = $("advanced").classList.contains("hidden");
   if (open) $("advanced").classList.remove("hidden"); else $("advanced").classList.add("hidden");
   $("advancedToggle").textContent = open ? "Advanced ▾" : "Advanced ▸";
+  if (open) refreshBackupInfo();
 });

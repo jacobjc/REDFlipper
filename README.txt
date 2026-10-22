@@ -32,10 +32,11 @@ ADVANCED OPTIONS (remembered between sessions)
   copy of the clip at the flip point (which splits it) and ripple-deleting the copy; both
   halves keep all effects. Remove Rotation does not rejoin cuts: use Ctrl+Z, or right-click
   the cut > Join Through Edits.
-- Auto-Save project before applying changes (on by default): saves the project (like Ctrl+S), then puts
-  a timestamped copy (<project>-REDFlipper-<date>_<time>.prproj) in the
-  "Adobe Premiere Pro Auto-Save" folder next to the project, before anything is changed.
-  Premiere's own auto-save can't be triggered by a plugin.
+- Auto-Backup Project (on by default): every time Analyze & Flip is used, saves the
+  project (like Ctrl+S), then puts a timestamped copy (<project>-REDFlipper-<date>_<time>.prproj)
+  in the "Adobe Premiere Pro Auto-Save" folder next to the project, before anything is
+  changed. The bottom of Advanced shows the folder and the last backup. (Premiere's own
+  auto-save can't be triggered by a plugin.)
 - Analyze & Flip still clears REDFlipper rotation from the other places (Transform, Motion,
   Source) where it would flip a clip twice.
 Nothing is written to disk. Motion data read during a Premiere session is kept in

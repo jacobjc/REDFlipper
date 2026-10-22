@@ -105,10 +105,13 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   get every level cleaned. Remove Rotation (2.4.1) only undoes the current mode's level: Transform by default,
   Motion flip with `optMotion`, Source Transform with `optSource`; `#undoInfo` (bottom of Advanced, `undoText()`)
   explains the current undo and updates on every option change.
-- Auto-Save (`optAutoSave`, 2.4.2; checked by default since 2.4.3 via `DEFAULT_ON`, other options default off): no API triggers Premiere's own auto-save. `autoSave()` calls `project.save()`, then
-  copies `project.path` (UXP fs `copyFile`, fallback read/write; works with `\` or `/` paths) to
-  `<project folder>/Adobe Premiere Pro Auto-Save/<name>-REDFlipper-YYYY-MM-DD_HH-MM-SS.prproj`. Runs right before
-  the first edit of Analyze & Flip, and before Remove Rotation. Failures are logged and the run continues.
+- Auto-Backup Project (`optAutoSave` id kept for the saved setting; on by default via `DEFAULT_ON` since 2.4.3,
+  renamed in 2.4.4): no API triggers Premiere's own auto-save. `autoBackup()` (Analyze & Flip only, right before the
+  first edit) logs "Backing up current project...", calls `project.save()`, copies `project.path` (UXP fs `copyFile`,
+  fallback read/write; `\` or `/` paths) to `<project folder>/Adobe Premiere Pro Auto-Save/<name>-REDFlipper-
+  YYYY-MM-DD_HH-MM-SS.prproj`, then logs "Backup saved to <path>". Failures are logged and the run continues.
+  `#backupInfo` under the undo text (`refreshBackupInfo()`: folder + newest backup time) refreshes on option change,
+  Advanced open and after each run.
 - Cuts (`optCuts`, not in Source mode): the UXP API has no razor (Adobe: not planned for 1.0). `cutAt` uses
   `SequenceEditor.createCloneTrackItemAction(item, offset, 0, 0, true, isInsert=true)` at the flip point (an insert
   splits the clip there), then finds the copy (starts at the cut with the original's in point) plus any audio at the
