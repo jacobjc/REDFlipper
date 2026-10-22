@@ -41,8 +41,23 @@ const analysisCache = new Map();  // analysis method + media path -> result, for
 const $ = (id) => document.getElementById(id);
 
 // analysis method names are colour-coded wherever they appear (see .fast / .fbf in index.html)
+// analysis methods and stabilizing are colour-coded wherever they appear (.fast / .fbf / .stab in index.html)
 const FAST = "Fast Analysis", FBF = "Frame-by-Frame Analysis";
-const METHOD_RE = /(Fast Analysis|Frame-by-Frame Analysis)/;
+const COLOURED_RE = /(Fast Analysis|Frame-by-Frame Analysis|[Ss]tabiliz[a-z]*)/;
+
+// Appends text to an element, wrapping the colour-coded words in spans.
+function appendColoured(el, text) {
+  for (const part of String(text).split(COLOURED_RE)) {
+    if (!part) continue;
+    const cls = part === FAST ? "fast" : part === FBF ? "fbf" : /^[Ss]tabiliz/.test(part) ? "stab" : null;
+    if (!cls) { el.appendChild(document.createTextNode(part)); continue; }
+    const s = document.createElement("span");
+    s.className = cls;
+    s.textContent = part;
+    el.appendChild(s);
+  }
+  return el;
+}
 
 // A clickable path: opens the folder in Explorer / Finder (a file's own folder, so a backup
 // .prproj isn't opened in Premiere). Needs the launchProcess permission in manifest.json;
@@ -69,16 +84,7 @@ let logSticky = true;   // follow new lines; off while the editor has scrolled u
 
 function log(msg, cls, link) {
   const box = $("log");
-  const d = document.createElement("div");
-  for (const part of String(msg).split(METHOD_RE)) {
-    if (!part) continue;
-    if (part === FAST || part === FBF) {
-      const s = document.createElement("span");
-      s.className = part === FAST ? "fast" : "fbf";
-      s.textContent = part;
-      d.appendChild(s);
-    } else d.appendChild(document.createTextNode(part));
-  }
+  const d = appendColoured(document.createElement("div"), msg);
   if (link) d.appendChild(pathLink(link.path, link.folder));
   if (cls) d.className = cls;
   box.appendChild(d);
@@ -107,8 +113,10 @@ function setOpt(id, on) {
   if (on) $(id).classList.add("on"); else $(id).classList.remove("on");
   try { localStorage.setItem(`redflipper.${id}`, on ? "1" : "0"); } catch (e) { /* not remembered */ }
   showOverrides();
-  $("flip").textContent = runLabel();
-  $("undoInfo").textContent = undoText();
+  $("flip").textContent = "";
+  appendColoured($("flip"), runLabel());
+  $("undoInfo").textContent = "";
+  appendColoured($("undoInfo"), undoText());
   refreshBackupInfo();
 }
 
@@ -126,6 +134,7 @@ function showOverrides() {
   for (const id of OPTIONS) {
     const f = id in forced ? forced[id] : null, shown = f === null ? opt(id) : f;
     if (f === null) $(id).classList.remove("overridden"); else $(id).classList.add("overridden");
+    if (shown) $(id).classList.add("shown"); else $(id).classList.remove("shown");   // warnings show only while ticked
     const box = $(id).querySelector(".box");
     box.textContent = shown ? "✓" : "";
     box.className = `box${shown ? " checked" : ""}`;
@@ -734,7 +743,7 @@ async function refreshBackupInfo() {
   box.textContent = "";
   const line = (...parts) => {
     const d = document.createElement("div");
-    for (const p of parts) d.appendChild(typeof p === "string" ? document.createTextNode(p) : p);
+    for (const p of parts) if (typeof p === "string") appendColoured(d, p); else d.appendChild(p);
     box.appendChild(d);
   };
   line(`REDFlipper auto-backups your project every time “${runLabel()}” is used (unless disabled).`);
@@ -962,7 +971,7 @@ async function analyseAndFlip() {
   startRun(runLabel());
   const mode = applyMode(), stabilize = opt("optStabilize");
   const forceWalk = opt("optForceFbf"), withCuts = opt("optCuts") && mode !== "source" && !stabilize;
-  if (stabilize) log("Option: Lock to Horizon (Stabilize), levels every frame.", "dim");
+  if (stabilize) log("Option: Lock to Horizon (Stabilize Rotation), levels every frame.", "dim");
   if (mode === "motion") log("Option: Apply Rotation to Clip “Motion” Effect.", "dim");
   if (mode === "source") log("Option: Apply Rotation to Source Clip (all instances in the project).", "dim");
   if (withCuts) log("Option: Add Cut at each Flip Point.", "dim");

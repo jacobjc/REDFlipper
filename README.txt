@@ -22,7 +22,9 @@ USE
   which walks every block and is much slower.
 
 ADVANCED OPTIONS (remembered between sessions)
-- Force Frame-by-Frame Analysis: always use the slow method.
+- Force Frame-by-Frame Analysis: always use the slow method. It reads the same motion data,
+  so it doesn't improve quality; it only helps if a file's index is damaged (Fast
+  Analysis already falls back on its own then).
 - Apply Rotation to Clip "Motion" Effect: puts the rotation in Motion > Rotation instead
   of a Transform effect. Existing Motion rotation keyframes are replaced.
 - Apply Rotation to Source Clip: puts the Transform on the source (master) clip, so every
@@ -33,7 +35,7 @@ ADVANCED OPTIONS (remembered between sessions)
   halves keep all effects. Undo does not rejoin cuts: use Ctrl+Z, or right-click
   the cut > Join Through Edits (Ctrl + Left-click drag to select multiple cut points).
   Greyed out (off) when Apply Rotation to Source Clip or Stabilize is on.
-- Lock to Horizon (Stabilize): the main button becomes "Analyze & Stabilize". Instead of only flipping, levels the horizon on every frame.
+- Lock to Horizon (Stabilize Rotation): the main button becomes "Analyze & Stabilize". Instead of only flipping, levels the horizon on every frame.
   The camera's roll angle comes from gravity measured by its motion sensor (averaged over
   0.1 s around each frame), so upside-down sections come out at 180 and small tilts are
   corrected too. One linear keyframe on every frame. Goes to the Transform, Motion or

@@ -35,9 +35,11 @@
     .opt.overridden { cursor: default; }
     .opt.overridden .box { border-color: #555; color: #888; }
     .opt.overridden .box.checked { background: #555; border-color: #555; }
-    .opt.overridden .optText, .opt.overridden .warning, .opt.overridden .fbf { color: #666; }
-    /* warnings sit on their own line under each option's label */
-    .optText .warning { display: block; }
+    .opt.overridden .optText, .opt.overridden .fbf, .opt.overridden .stab { color: #666; }
+    /* warnings sit on their own line under each option's label, only while it's ticked (even when
+       forced on, and then still orange) */
+    .optText .warning { display: none; }
+    .opt.shown .optText .warning { display: block; }
     #backupInfo { color: #999; margin-top: 10px; overflow-wrap: anywhere; word-break: break-all; }
     .link { text-decoration: underline; cursor: pointer; color: #b8d4ff; }
     #undoInfo { color: #999; border-top: 1px solid #444; margin-top: 6px; padding-top: 5px; white-space: pre-line; }
@@ -51,7 +53,7 @@
            user-select: text; }
     .err { color: #ff8080; } .ok { color: #8fdc8f; } .warn { color: #ff9933; } .dim { color: #999; }
     /* analysis methods are always blue / yellow, warnings orange */
-    .fast { color: #4da3ff; } .fbf { color: #f5d742; } .warning { color: #ff9933; }
+    .fast { color: #4da3ff; } .fbf { color: #f5d742; } .stab { color: #b48cff; } .warning { color: #ff9933; }
   </style>
 </head>
 <body>
@@ -79,7 +81,7 @@
     <div class="opt" id="optCuts" role="checkbox" aria-checked="false"><div class="box"></div>
       <div class="optText">Add Cut at each Flip Point</div></div>
     <div class="opt" id="optStabilize" role="checkbox" aria-checked="false"><div class="box"></div>
-      <div class="optText">Lock to Horizon (Stabilize)</div></div>
+      <div class="optText">Lock to Horizon (<span class="stab">Stabilize</span> Rotation)</div></div>
     <div class="opt" id="optMotion" role="checkbox" aria-checked="false"><div class="box"></div>
       <div class="optText">Apply Rotation to Clip “Motion” Effect
         <span class="warning">(Warning: Will overwrite existing motion keyframes.)</span></div></div>
@@ -88,7 +90,7 @@
         <span class="warning">(Warning: affects all instances of this clip in project.)</span></div></div>
     <div class="opt" id="optForceFbf" role="checkbox" aria-checked="false"><div class="box"></div>
       <div class="optText">Force <span class="fbf">Frame-by-Frame Analysis</span>
-        <span class="warning">(Warning: SLOW)</span></div></div>
+        <span class="warning">(Warning: SLOW, doesn't improve quality)</span></div></div>
     <div class="opt" id="optAutoSave" role="checkbox" aria-checked="false"><div class="box"></div>
       <div class="optText">Auto-Backup Project</div></div>
     <div id="undoInfo"></div>

@@ -22,7 +22,9 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
   progress bar, log (fills remaining height, scrolls, never cleared: each run appends under a dim header; a new run
   jumps the log and the panel to the bottom and the log follows new lines until the editor scrolls up).
   Colours: "Fast Analysis" blue (`.fast`), "Frame-by-Frame Analysis" yellow (`.fbf`; `log()` colours both
-  phrases automatically), warnings orange (`.warning`, log class `warn`). Preview was removed in 2.3.0.
+  phrases automatically via `appendColoured()`, also used for the main button, undo and backup text), "stabiliz…"
+  words purple (`.stab`, 2.5.7), warnings orange (`.warning`, log class `warn`; option warnings only show while the
+  option is ticked, `.opt.shown`). Preview was removed in 2.3.0.
 - `index.js` — everything else (R3D reader, analysis, Premiere edits). Plain JS, no build step.
 - `icons/` — plugin + panel icons. `redflipper.svg` is the source (flippers icon by Anna Pasechnaia,
   Noun Project, CC BY 3.0, credited in README); the PNGs (panel 23/46, plugin 48/96, header 64) are rendered
@@ -130,7 +132,7 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   removed. 2.4.7 finds the copy by start time only, tries the remove as ANY+audio, VIDEO, ANY and checks the timeline
   after each, logs which failed (with Premiere's error), and stops further cuts after a failure.
 
-## Stabilize (2.5.0, `optStabilize`; label "Lock to Horizon (Stabilize)" and button "Analyze & Stabilize" via `runLabel()` since 2.5.3)
+## Stabilize (2.5.0, `optStabilize`; label "Lock to Horizon (Stabilize Rotation)" and button "Analyze & Stabilize" via `runLabel()` since 2.5.3)
 - `rollKeys(clip)`: per frame, roll = ROLL_SIGN · atan2(Y, Z) of gravity averaged over ±50 ms (prefix sums over the
   10 ms bins), held while hypot(Y,Z) < 0.35, unwrapped (no 360° jumps). One key on every frame, no minimum change (2.5.6, Jacob; 2.5.0–2.5.5 dropped keys
   within 0.05° of a straight line), LINEAR interpolation. `stabPlan(result)` caches it on the analysis result (which keeps `clip`
