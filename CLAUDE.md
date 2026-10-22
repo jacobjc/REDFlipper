@@ -15,7 +15,7 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
 - `index.html` — panel UI: icon + title/version + "by Jacob J. Christiansen"; "Selected clips only" toggle
   switch (a styled div, `.on` class = selected only; off = whole sequence); Analyze & Flip, Remove Rotation,
   Stop, Advanced, all in one row; Advanced reveals five option checkboxes (styled divs `.opt`, `.on` = checked, saved in
-  localStorage as `redflipper.<id>`; each label's warning/note is on its own line below it): `optForceFbf`, `optMotion`, `optSource`, `optCuts`, `optAutoSave`; status line, per-clip
+  localStorage as `redflipper.<id>`; each label's warning is on its own line below it): `optForceFbf`, `optMotion`, `optSource`, `optCuts`, `optAutoSave`; status line, per-clip
   progress bar, log (fills remaining height, scrolls, never cleared: each run appends under a dim header).
   Colours: "Fast Analysis" blue (`.fast`), "Frame-by-Frame Analysis" yellow (`.fbf`; `log()` colours both
   phrases automatically), warnings orange (`.warning`, log class `warn`). Preview was removed in 2.3.0.

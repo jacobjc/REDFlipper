@@ -32,12 +32,11 @@
     .opt.on .box { background: #2d8ceb; border-color: #2d8ceb; }
     .optText { flex: 1 1 auto; }
     .opt.overridden { opacity: 0.45; }
-    .note { color: #999; }
     /* warnings and notes sit on their own line under each option's label */
-    .optText .warning, .optText .note { display: block; }
+    .optText .warning { display: block; }
     #backupInfo { color: #999; margin-top: 10px; overflow-wrap: anywhere; word-break: break-all; }
     .link { text-decoration: underline; cursor: pointer; color: #b8d4ff; }
-    #undoInfo { color: #999; margin-top: 10px; }
+    #undoInfo { color: #999; border-top: 1px solid #444; margin-top: 6px; padding-top: 5px; }
     #status { color: var(--uxp-host-text-color-secondary, #aaa); min-height: 16px; margin: 4px 0 4px; }
     #progressWrap { height: 4px; background: #3a3a3a; border-radius: 2px; overflow: hidden; margin: 0 0 8px; }
     #progressBar { height: 4px; width: 0%; background: #2d8ceb; }
@@ -87,9 +86,7 @@
       <div class="optText">Add Cut at each Flip Point
         <span class="warning">(Warning: Ignored if “Apply Rotation to Source Clip” is enabled.)</span></div></div>
     <div class="opt" id="optAutoSave" role="checkbox" aria-checked="false"><div class="box"></div>
-      <div class="optText">Auto-Backup Project
-        <span class="note">(Saves the project, then puts a timestamped copy in the “Adobe Premiere Pro Auto-Save”
-        folder next to it.)</span></div></div>
+      <div class="optText">Auto-Backup Project</div></div>
     <div id="undoInfo"></div>
     <div id="backupInfo"></div>
   </div>
