@@ -105,7 +105,7 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   get every level cleaned. Remove Rotation (2.4.1) only undoes the current mode's level: Transform by default,
   Motion flip with `optMotion`, Source Transform with `optSource`; `#undoInfo` (bottom of Advanced, `undoText()`)
   explains the current undo and updates on every option change.
-- Auto-Save (`optAutoSave`, 2.4.2): no API triggers Premiere's own auto-save. `autoSave()` calls `project.save()`, then
+- Auto-Save (`optAutoSave`, 2.4.2; checked by default since 2.4.3 via `DEFAULT_ON`, other options default off): no API triggers Premiere's own auto-save. `autoSave()` calls `project.save()`, then
   copies `project.path` (UXP fs `copyFile`, fallback read/write; works with `\` or `/` paths) to
   `<project folder>/Adobe Premiere Pro Auto-Save/<name>-REDFlipper-YYYY-MM-DD_HH-MM-SS.prproj`. Runs right before
   the first edit of Analyze & Flip, and before Remove Rotation. Failures are logged and the run continues.

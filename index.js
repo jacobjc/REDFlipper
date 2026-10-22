@@ -70,6 +70,7 @@ function status(msg) { $("status").textContent = msg || ""; }
 // ------------------------------------------------------------------ advanced options
 
 const OPTIONS = ["optForceFbf", "optMotion", "optSource", "optCuts", "optAutoSave"];
+const DEFAULT_ON = new Set(["optAutoSave"]);   // checked until the editor unticks it
 const opt = (id) => $(id).classList.contains("on");
 
 function setOpt(id, on) {
@@ -86,8 +87,11 @@ function setOpt(id, on) {
 
 function loadOptions() {
   for (const id of OPTIONS) {
-    let on = false;
-    try { on = localStorage.getItem(`redflipper.${id}`) === "1"; } catch (e) { /* default off */ }
+    let on = DEFAULT_ON.has(id);
+    try {
+      const v = localStorage.getItem(`redflipper.${id}`);
+      if (v !== null && v !== undefined) on = v === "1";
+    } catch (e) { /* default */ }
     setOpt(id, on);
   }
 }
