@@ -36,8 +36,7 @@ ADVANCED OPTIONS (remembered between sessions)
 - Lock to Horizon (Stabilize): the main button becomes "Analyze & Stabilize". Instead of only flipping, levels the horizon on every frame.
   The camera's roll angle comes from gravity measured by its motion sensor (averaged over
   0.1 s around each frame), so upside-down sections come out at 180 and small tilts are
-  corrected too. Keyframes are linear; a key is only kept where a straight line between
-  its neighbours would be off by more than 0.05 degrees. Goes to the Transform, Motion or
+  corrected too. One linear keyframe on every frame. Goes to the Transform, Motion or
   Source Clip like a flip. Disables cuts. Rotating
   shows the frame's corners; scale up to hide them.
 - Auto-Backup Project (on by default): every time Analyze & Flip (or Analyze & Stabilize) is used, saves the

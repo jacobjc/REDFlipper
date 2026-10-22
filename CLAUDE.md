@@ -132,8 +132,8 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
 
 ## Stabilize (2.5.0, `optStabilize`; label "Lock to Horizon (Stabilize)" and button "Analyze & Stabilize" via `runLabel()` since 2.5.3)
 - `rollKeys(clip)`: per frame, roll = ROLL_SIGN · atan2(Y, Z) of gravity averaged over ±50 ms (prefix sums over the
-  10 ms bins), held while hypot(Y,Z) < 0.35, unwrapped (no 360° jumps). Keys simplified with Ramer–Douglas–Peucker
-  (0.05° tolerance), LINEAR interpolation. `stabPlan(result)` caches it on the analysis result (which keeps `clip`
+  10 ms bins), held while hypot(Y,Z) < 0.35, unwrapped (no 360° jumps). One key on every frame, no minimum change (2.5.6, Jacob; 2.5.0–2.5.5 dropped keys
+  within 0.05° of a straight line), LINEAR interpolation. `stabPlan(result)` caches it on the analysis result (which keeps `clip`
   rows). Plan kind "stab" flows through the same apply path as "mixed" (any mode), cuts off. Fast Analysis is fine
   (same motion samples as Frame-by-Frame); 2.5.0 forced FBF, dropped in 2.5.1 at Jacob's request.
 - Accelerometer, not gyro: RED gyro values don't integrate to real angles (see above). ROLL_SIGN = 1 is a guess

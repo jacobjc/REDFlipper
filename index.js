@@ -29,7 +29,6 @@ const MIN_HOLD_S = 2.0;          // ignore orientation changes shorter than this
 
 // stabilize (level every frame) settings
 const STAB_SMOOTH_US = 50000;    // level angle = gravity averaged over ± 50 ms around each frame
-const STAB_TOLERANCE = 0.05;     // degrees: keys a straight line between their neighbours already gives are dropped
 const ROLL_SIGN = 1;             // direction of the correction; -1 if leveling turns the wrong way
 
 let busy = false;
@@ -499,9 +498,8 @@ async function analyse(path, onProgress, forceWalk, onFallback) {
 
 // Stabilize: the camera's roll for every frame, from gravity in the Y/Z plane (0° upright,
 // 180° upside-down), unwrapped so it never jumps by 360°. While the lens points nearly straight
-// up or down the roll is undefined and the last value is held. Keys a straight line between
-// their neighbours already reproduces (within STAB_TOLERANCE) are dropped, so Premiere's linear
-// interpolation gives every frame its own value without a key on each one.
+// up or down the roll is undefined and the last value is held. One key on every frame, however
+// small the change.
 function rollKeys(clip) {
   const { rows, frames: total, frame0, recordFps } = clip;
   if (!rows || !rows.length || frame0 === null || !total) return null;
@@ -529,22 +527,8 @@ function rollKeys(clip) {
   if (first < 0) return null;
   for (let f = 0; f < first; f++) vals[f] = vals[first];
 
-  // keep only the keys a straight line can't stand in for
-  const keep = new Uint8Array(total);
-  keep[0] = keep[total - 1] = 1;
-  const stack = [[0, total - 1]];
-  while (stack.length) {
-    const [a, b] = stack.pop();
-    if (b - a < 2) continue;
-    let worst = -1, wd = STAB_TOLERANCE;
-    for (let i = a + 1; i < b; i++) {
-      const d = Math.abs(vals[i] - (vals[a] + (vals[b] - vals[a]) * (i - a) / (b - a)));
-      if (d > wd) { wd = d; worst = i; }
-    }
-    if (worst >= 0) { keep[worst] = 1; stack.push([a, worst], [worst, b]); }
-  }
   const keys = [];
-  for (let f = 0; f < total; f++) if (keep[f]) keys.push({ frame: f, value: Math.round(vals[f] * 1000) / 1000 });
+  for (let f = 0; f < total; f++) keys.push({ frame: f, value: Math.round(vals[f] * 1000) / 1000 });
   return keys;
 }
 
