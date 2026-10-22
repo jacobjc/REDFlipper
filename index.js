@@ -131,7 +131,6 @@ function undoText() {
             "goes back to upright. Timeline effects are left alone.",
   }[mode];
   if (opt("optCuts") && mode !== "source") text += " Cuts stay: use Ctrl+Z, or right-click a cut > Join Through Edits.";
-  if (opt("optForceFbf")) text += " (Force Frame-by-Frame Analysis doesn't change undo.)";
   return "Undo (Remove Rotation): " + text;
 }
 
@@ -628,7 +627,7 @@ async function autoBackup(project) {
   }
 }
 
-// Backup paragraph under the undo text in Advanced: folder and the newest backup's time.
+// Backup paragraph under the undo text in Advanced: folder and the newest backup's file name.
 async function refreshBackupInfo() {
   let where = "(save the project first)", last = "none yet", folder = null;
   try {
@@ -638,9 +637,9 @@ async function refreshBackupInfo() {
       folder = dir;
       let names = [];
       try { names = (await listDir(dir)).map((e) => (typeof e === "string" ? e : e.name)); } catch (e) { /* no folder yet */ }
+      // names end in a sortable timestamp, so the last one is the newest
       const newest = names.filter((n) => n.startsWith(prefix) && /\.prproj$/i.test(n)).sort().pop();
-      const m = newest && newest.slice(prefix.length).match(/^(\d{4}-\d\d-\d\d)_(\d\d)-(\d\d)-(\d\d)/);
-      if (m) last = `${m[1]} ${m[2]}:${m[3]}:${m[4]}`;
+      if (newest) last = pathLink(newest, dir);
     } else if (!project) where = "(no project open)";
   } catch (e) { /* keep defaults */ }
   const box = $("backupInfo");
@@ -652,7 +651,7 @@ async function refreshBackupInfo() {
   };
   line("REDFlipper auto-backups your project every time “Analyze & Flip” is used (unless disabled).");
   line("Backups are located at: ", folder ? pathLink(folder) : where);
-  line(`Last backup: ${last}`);
+  line("Last backup: ", last);
 }
 
 // ------------------------------------------------------------------ collect + analyse

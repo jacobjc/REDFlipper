@@ -33,9 +33,11 @@
     .optText { flex: 1 1 auto; }
     .opt.overridden { opacity: 0.45; }
     .note { color: #999; }
+    /* warnings and notes sit on their own line under each option's label */
+    .optText .warning, .optText .note { display: block; }
     #backupInfo { color: #999; margin-top: 10px; overflow-wrap: anywhere; word-break: break-all; }
     .link { text-decoration: underline; cursor: pointer; color: #b8d4ff; }
-    #undoInfo { color: #999; border-top: 1px solid #444; margin-top: 6px; padding-top: 5px; }
+    #undoInfo { color: #999; margin-top: 10px; }
     #status { color: var(--uxp-host-text-color-secondary, #aaa); min-height: 16px; margin: 4px 0 4px; }
     #progressWrap { height: 4px; background: #3a3a3a; border-radius: 2px; overflow: hidden; margin: 0 0 8px; }
     #progressBar { height: 4px; width: 0%; background: #2d8ceb; }
@@ -67,8 +69,6 @@
   <div class="row">
     <button id="flip">Analyze &amp; Flip</button>
     <button id="remove">Remove Rotation</button>
-  </div>
-  <div class="row">
     <button id="stop" disabled>Stop</button>
     <button id="advancedToggle">Advanced ▸</button>
   </div>

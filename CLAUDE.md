@@ -7,13 +7,15 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
 119.88 fps slow motion played at 23.976, but formats vary, so frame rates are read per clip.
 
 ## Files
+- Panel size (2.4.6): minimum/floating/docked all 700x450 (Premiere 26.5 ignores the preferred size on first open but
+  respects the minimum, so the minimum is the opening size).
 - `manifest.json` — id `com.jacobchristiansen.redflip`, name `REDFlipper`, version (bump every release;
   the panel shows it next to the title), host `premierepro` min 25.6.0, `localFileSystem: fullAccess`
   (needed: the plugin opens R3Ds itself), `launchProcess` (open backup folders).
 - `index.html` — panel UI: icon + title/version + "by Jacob J. Christiansen"; "Selected clips only" toggle
   switch (a styled div, `.on` class = selected only; off = whole sequence); Analyze & Flip, Remove Rotation,
-  Stop; Advanced button revealing four option checkboxes (styled divs `.opt`, `.on` = checked, saved in
-  localStorage as `redflipper.<id>`): `optForceFbf`, `optMotion`, `optSource`, `optCuts`, `optAutoSave`; status line, per-clip
+  Stop, Advanced, all in one row; Advanced reveals five option checkboxes (styled divs `.opt`, `.on` = checked, saved in
+  localStorage as `redflipper.<id>`; each label's warning/note is on its own line below it): `optForceFbf`, `optMotion`, `optSource`, `optCuts`, `optAutoSave`; status line, per-clip
   progress bar, log (fills remaining height, scrolls, never cleared: each run appends under a dim header).
   Colours: "Fast Analysis" blue (`.fast`), "Frame-by-Frame Analysis" yellow (`.fbf`; `log()` colours both
   phrases automatically), warnings orange (`.warning`, log class `warn`). Preview was removed in 2.3.0.
@@ -110,7 +112,7 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   first edit) logs "Backing up current project...", calls `project.save()`, copies `project.path` (UXP fs `copyFile`,
   fallback read/write; `\` or `/` paths) to `<project folder>/Adobe Premiere Pro Auto-Save/<name>-REDFlipper-
   YYYY-MM-DD_HH-MM-SS.prproj`, then logs "Backup saved to <path>". Failures are logged and the run continues.
-  `#backupInfo` under the undo text (`refreshBackupInfo()`: folder + newest backup time) refreshes on option change,
+  `#backupInfo` under the undo text (`refreshBackupInfo()`: folder + newest backup file name, both clickable) refreshes on option change,
   Advanced open and after each run.
 - Clickable paths (2.4.5): `pathLink()` spans (`.link`) open a folder with `uxp.shell.openPath` (a backup file's link
   opens its folder, not the .prproj). Needs manifest `requiredPermissions.launchProcess.extensions: [""]` (empty
