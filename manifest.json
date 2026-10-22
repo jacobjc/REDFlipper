@@ -1,7 +1,7 @@
 {
   "id": "com.jacobchristiansen.redflip",
   "name": "REDFlipper",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "main": "index.html",
   "host": {
     "app": "premierepro",
@@ -19,20 +19,20 @@
         "default": "REDFlipper"
       },
       "minimumSize": {
-        "width": 280,
-        "height": 320
+        "width": 700,
+        "height": 900
       },
       "maximumSize": {
         "width": 2000,
         "height": 2000
       },
       "preferredDockedSize": {
-        "width": 1000,
-        "height": 1120
+        "width": 700,
+        "height": 900
       },
       "preferredFloatingSize": {
-        "width": 1040,
-        "height": 1200
+        "width": 700,
+        "height": 900
       },
       "icons": [
         {
