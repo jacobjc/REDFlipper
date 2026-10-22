@@ -94,11 +94,31 @@ function log(msg, cls, link) {
 // A new run jumps the log and the panel to the bottom, and the log sticks there again.
 function startRun(label) {
   logSticky = true;
-  for (const el of [document.documentElement, document.body]) {
-    try { if (el) el.scrollTop = el.scrollHeight; } catch (e) { /* not scrollable */ }
-  }
+  // The panel scrolls down once the logo animation is over, smoothly, so it's clear what moved.
+  scrollMainToBottom(Math.max(0, logoAnimEnd - Date.now()) + 80);
   if ($("log").childNodes.length) log(" ");
   log(`── ${label} · ${new Date().toLocaleTimeString()} ──`, "dim");
+}
+
+let mainScrollTimer = null;
+function scrollMainToBottom(delay) {
+  if (mainScrollTimer) clearTimeout(mainScrollTimer);
+  mainScrollTimer = setTimeout(() => {
+    const els = [document.documentElement, document.body].filter((el) => el);
+    const from = els.map((el) => el.scrollTop || 0), t0 = Date.now(), dur = 400;
+    const ease = (x) => (x < 0.5 ? 2 * x * x : 1 - 2 * (1 - x) ** 2);
+    const tick = () => {
+      const x = Math.min(1, (Date.now() - t0) / dur);
+      els.forEach((el, i) => {
+        try {
+          const to = Math.max(0, el.scrollHeight - el.clientHeight);
+          if (to > from[i]) el.scrollTop = from[i] + (to - from[i]) * ease(x);
+        } catch (e) { /* not scrollable */ }
+      });
+      mainScrollTimer = x < 1 ? setTimeout(tick, 16) : null;
+    };
+    tick();
+  }, delay);
 }
 
 function status(msg) { $("status").textContent = msg || ""; }
@@ -106,9 +126,11 @@ function status(msg) { $("status").textContent = msg || ""; }
 // ------------------------------------------------------------------ logo animation
 
 // CSS animations and transforms don't run in UXP panels, so the logo turns by flicking through
-// pre-rotated frames (icons/spin/rNNN.png, every 3° clockwise), all loaded up front and hidden.
+// pre-rotated frames (icons/spin/rNNN.png, every 3° clockwise), all loaded and laid out up front.
+// Frames are swapped with opacity, not display: re-showing a display:none image made UXP lay it out
+// again, and it sometimes flashed at the wrong size for a frame (the "zoom" flicker in 2.5.8).
 const SPIN_STEP = 3, SPIN_FRAMES = 120;
-let spinFrames = null, spinShown = -1, spinTimer = null;
+let spinFrames = null, spinShown = -1, spinTimer = null, logoAnimEnd = 0;
 
 function initLogo() {
   try {
@@ -117,7 +139,8 @@ function initLogo() {
       const img = document.createElement("img");
       img.src = `icons/spin/r${String(i * SPIN_STEP).padStart(3, "0")}.png`;
       img.className = "spinFrame";
-      img.style.display = "none";
+      img.width = 42; img.height = 42;
+      img.style.opacity = "0";
       $("logoBox").appendChild(img);
       spinFrames.push(img);
     }
@@ -127,9 +150,9 @@ function initLogo() {
 function showLogoAngle(deg) {
   const i = deg === null ? -1 : ((Math.round(deg / SPIN_STEP) % SPIN_FRAMES) + SPIN_FRAMES) % SPIN_FRAMES;
   if (i === spinShown) return;
-  if (spinShown >= 0) spinFrames[spinShown].style.display = "none";
-  if (i >= 0) spinFrames[i].style.display = "";
-  $("logo").style.display = i >= 0 ? "none" : "";
+  if (i >= 0) spinFrames[i].style.opacity = "1";
+  if (spinShown >= 0) spinFrames[spinShown].style.opacity = "0";
+  $("logo").style.opacity = i >= 0 ? "0" : "1";
   spinShown = i;
 }
 
@@ -139,6 +162,7 @@ function animateLogo(stabilize) {
   if (!spinFrames) return;
   if (spinTimer) clearTimeout(spinTimer);
   const dur = stabilize ? 1400 : 1100, t0 = Date.now();
+  logoAnimEnd = t0 + dur;
   const backOut = (x) => { const c = 1.3; return 1 + (c + 1) * (x - 1) ** 3 + c * (x - 1) ** 2; };
   const angle = (x) => (stabilize ? 15 * Math.sin(x * 4 * Math.PI) * (1 - x) : 360 * backOut(x));
   const tick = () => {
