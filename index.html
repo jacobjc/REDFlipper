@@ -3,31 +3,61 @@
 <head>
   <script defer src="./index.js"></script>
   <style>
-    body { color: var(--uxp-host-text-color, #ddd); font-size: 12px; padding: 10px 12px; margin: 0; }
-    h1 { font-size: 14px; margin: 0 0 8px; }
-    .row { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; align-items: center; }
+    html, body { height: 100%; }
+    body { color: var(--uxp-host-text-color, #ddd); font-size: 12px; padding: 10px 12px; margin: 0;
+           display: flex; flex-direction: column; box-sizing: border-box; overflow-y: auto; }
+    #header { display: flex; align-items: center; margin: 0 0 8px; }
+    #logo { width: 32px; height: 32px; margin-right: 8px; }
+    h1 { font-size: 14px; margin: 0; }
+    #version { font-size: 10px; font-weight: normal; color: #777; margin-left: 6px; }
+    #author { font-size: 10px; color: #777; margin-top: 2px; }
+    /* keep every block at its natural height; only the log stretches or shrinks */
+    body > * { flex-shrink: 0; }
+    .row { display: flex; flex-wrap: wrap; margin: 4px 0; align-items: center; }
+    .row > * { margin: 4px 6px 4px 0; }
     button { padding: 4px 10px; }
+    /* toggle switch: a track with a knob, slid right when .on */
+    #scopeSwitch { display: flex; align-items: center; cursor: pointer; }
+    #switchTrack { width: 30px; height: 16px; border-radius: 8px; background: #555; margin-right: 8px;
+                   display: flex; align-items: center; padding: 0 2px; box-sizing: border-box; }
+    #switchKnob { width: 12px; height: 12px; border-radius: 6px; background: #ddd; }
+    #scopeSwitch.on #switchTrack { background: #2d8ceb; justify-content: flex-end; }
+    #scopeHint { color: #999; margin-left: 6px; }
+    #advancedToggle { font-size: 11px; }
+    #advanced { border: 1px solid #555; border-radius: 4px; padding: 6px 8px; margin: 0 0 8px; color: #999; }
     #status { color: var(--uxp-host-text-color-secondary, #aaa); min-height: 16px; margin: 4px 0 4px; }
     #progressWrap { height: 4px; background: #3a3a3a; border-radius: 2px; overflow: hidden; margin: 0 0 8px; }
     #progressBar { height: 4px; width: 0%; background: #2d8ceb; }
     .hidden { display: none; }
-    #version { font-size: 10px; font-weight: normal; color: #777; margin-left: 6px; }
-    #log { border: 1px solid #555; border-radius: 4px; padding: 6px 8px; height: 300px; overflow-y: scroll;
-           font-family: Consolas, monospace; font-size: 11px; white-space: pre-wrap; }
+    #log { border: 1px solid #555; border-radius: 4px; padding: 6px 8px; flex: 1 1 auto; min-height: 120px;
+           overflow-y: scroll; font-family: Consolas, monospace; font-size: 11px; white-space: pre-wrap; }
     .err { color: #ff8080; } .ok { color: #8fdc8f; } .warn { color: #f0c060; } .dim { color: #999; }
   </style>
 </head>
 <body>
-  <h1>REDFlipper<span id="version"></span></h1>
+  <div id="header">
+    <img id="logo" src="icons/header.png">
+    <div>
+      <h1>REDFlipper<span id="version"></span></h1>
+      <div id="author">by Jacob J. Christiansen</div>
+    </div>
+  </div>
   <div class="row">
-    <label><input type="checkbox" id="selectedOnly" checked> Selected clips only (untick for the whole sequence)</label>
+    <div id="scopeSwitch" class="on" role="switch" aria-checked="true">
+      <div id="switchTrack"><div id="switchKnob"></div></div>
+      <span id="scopeLabel">Selected clips only</span>
+    </div>
+    <span id="scopeHint">(switch off for the whole sequence)</span>
   </div>
   <div class="row">
     <button id="flip">Analyze &amp; Flip</button>
-    <button id="preview">Preview</button>
-    <button id="remove">Remove rotation</button>
-    <button id="stop" disabled>Stop</button>
+    <button id="remove">Remove Rotation</button>
   </div>
+  <div class="row">
+    <button id="stop" disabled>Stop</button>
+    <button id="advancedToggle">Advanced ▸</button>
+  </div>
+  <div id="advanced" class="hidden">More options coming in a later version.</div>
   <div id="status"></div>
   <div id="progressWrap" class="hidden"><div id="progressBar"></div></div>
   <div id="log"></div>

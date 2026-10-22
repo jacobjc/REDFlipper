@@ -46,6 +46,16 @@ function log(msg, cls) {
 function clearLog() { $("log").innerHTML = ""; }
 function status(msg) { $("status").textContent = msg || ""; }
 
+// scope switch: on = selected clips only, off = every clip in the active sequence
+const selectedOnly = () => $("scopeSwitch").classList.contains("on");
+
+function setSelectedOnly(on) {
+  if (on) $("scopeSwitch").classList.add("on"); else $("scopeSwitch").classList.remove("on");
+  $("scopeSwitch").setAttribute("aria-checked", on ? "true" : "false");
+  $("scopeLabel").textContent = on ? "Selected clips only" : "All clips in the sequence";
+  $("scopeHint").textContent = on ? "(switch off for the whole sequence)" : "(switch on for selected clips only)";
+}
+
 // per-clip progress bar: fraction 0..1 shows it, null hides it
 function progress(frac) {
   if (frac === null || frac === undefined) { $("progressWrap").className = "hidden"; return; }
@@ -57,7 +67,7 @@ async function guarded(fn) {
   if (busy) return;
   busy = true;
   stopRequested = false;
-  for (const id of ["flip", "preview", "remove"]) $(id).disabled = true;
+  for (const id of ["flip", "remove"]) $(id).disabled = true;
   $("stop").disabled = false;
   try { await fn(); }
   catch (e) {
@@ -69,7 +79,7 @@ async function guarded(fn) {
     busy = false;
     status("");
     progress(null);
-    for (const id of ["flip", "preview", "remove"]) $(id).disabled = false;
+    for (const id of ["flip", "remove"]) $(id).disabled = false;
     $("stop").disabled = true;
   }
 }
@@ -466,10 +476,10 @@ async function collect() {
   if (!seq) throw new Error("No active sequence.");
 
   let items = [];
-  if ($("selectedOnly").checked) {
+  if (selectedOnly()) {
     const sel = await seq.getSelection();
     items = (await sel.getTrackItems()).filter((t) => t instanceof ppro.VideoClipTrackItem);
-    if (!items.length) throw new Error("Nothing selected. Select clips, or untick “Selected clips only”.");
+    if (!items.length) throw new Error("Nothing selected. Select clips, or switch off “Selected clips only”.");
   } else {
     const n = await seq.getVideoTrackCount();
     for (let i = 0; i < n; i++) {
@@ -491,7 +501,9 @@ async function collect() {
     targets.push({ item, path, name: await item.getName(), inPoint, scan: await scanChain(item, inPoint) });
   }
   log(`${items.length} video clip(s) in scope: ${targets.length} RED, ${nonRed} other.`, "dim");
-  return { project, seq, targets };
+  let seqName = "the sequence";
+  try { seqName = seq.name || (seq.getName ? await seq.getName() : "") || seqName; } catch (e) { /* label only */ }
+  return { project, seq, seqName, targets };
 }
 
 // Analyse every distinct source clip once (several timeline clips can share one source).
@@ -530,27 +542,6 @@ async function analyseTargets(targets) {
 }
 
 // ------------------------------------------------------------------ actions
-
-async function preview() {
-  clearLog();
-  const c = await collect();
-  if (!c.targets.length) return log("No RED clips in scope.", "ok");
-  await analyseTargets(c.targets);
-  let n = 0;
-  for (const t of c.targets) {
-    const plan = t.result.plan;
-    if (plan.kind === "upright") {
-      if (t.scan.ours) { n++; log(`${t.name}: upright, remove REDFlipper Transform`); }
-      continue;
-    }
-    if (plan.kind !== "inverted" && plan.kind !== "mixed") continue;
-    n++;
-    const how = t.scan.ours ? "update Transform" : "add Transform";
-    if (plan.kind === "inverted") log(`${t.name}: ${how}, rotate 180° (whole clip)`);
-    else log(`${t.name}: ${how}, ${plan.keys.map((k) => `${k.tc} → ${k.value}°`).join(",  ")}`);
-  }
-  log(n ? `${n} clip(s) would change. Nothing has been modified.` : "All RED clips in scope are upright. Nothing to change.", "ok");
-}
 
 async function analyseAndFlip() {
   clearLog();
@@ -674,9 +665,10 @@ async function analyseAndFlip() {
     }
   }
 
-  const done = flips.length + strip.length - bad.size;
-  log(`Done: ${done} clip(s) updated${bad.size ? `, ${bad.size} failed` : ""}. ` +
-      `Undo is a few Ctrl+Z steps, or use “Remove rotation”.`, bad.size ? "warn" : "ok");
+  const scope = selectedOnly() ? "Selected Clip(s)" : `All Clips in ${c.seqName}`;
+  log(`Applied to ${scope} as Transform Effects with keyframes` +
+      (bad.size ? ` (${bad.size} clip(s) failed, see above)` : "") +
+      `. To Undo, use “Remove Rotation”.`, bad.size ? "warn" : "ok");
 }
 
 async function removeRotation() {
@@ -710,6 +702,11 @@ async function removeRotation() {
 })();
 
 $("flip").addEventListener("click", () => guarded(analyseAndFlip));
-$("preview").addEventListener("click", () => guarded(preview));
 $("remove").addEventListener("click", () => guarded(removeRotation));
 $("stop").addEventListener("click", () => { stopRequested = true; status("Stopping…"); });
+$("scopeSwitch").addEventListener("click", () => { if (!busy) setSelectedOnly(!selectedOnly()); });
+$("advancedToggle").addEventListener("click", () => {
+  const open = $("advanced").classList.contains("hidden");
+  if (open) $("advanced").classList.remove("hidden"); else $("advanced").classList.add("hidden");
+  $("advancedToggle").textContent = open ? "Advanced ▾" : "Advanced ▸";
+});
