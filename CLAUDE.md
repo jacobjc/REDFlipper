@@ -13,10 +13,11 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
   the panel shows it next to the title), host `premierepro` min 25.6.0, `localFileSystem: fullAccess`
   (needed: the plugin opens R3Ds itself), `launchProcess` (open backup folders).
 - `index.html` — panel UI: icon + title/version + "by Jacob J. Christiansen"; "Selected clips only" toggle
-  switch (a styled div, `.on` class = selected only; off = whole sequence); Analyze & Flip, Remove Rotation,
+  switch (a styled div, `.on` class = selected only; off = whole sequence); Analyze & Flip, Undo (= Remove Rotation, renamed 2.4.7),
   Stop, Advanced, all in one row; Advanced reveals five option checkboxes (styled divs `.opt`, `.on` = checked, saved in
-  localStorage as `redflipper.<id>`; each label's warning is on its own line below it): `optForceFbf`, `optMotion`, `optSource`, `optCuts`, `optAutoSave`; status line, per-clip
-  progress bar, log (fills remaining height, scrolls, never cleared: each run appends under a dim header).
+  localStorage as `redflipper.<id>`; each label's warning is on its own line below it): in order `optCuts`, `optMotion`, `optSource`, `optForceFbf`, `optAutoSave` (Source greys out Motion and Cuts with a red "(IGNORED)"); status line, per-clip
+  progress bar, log (fills remaining height, scrolls, never cleared: each run appends under a dim header; a new run
+  jumps the log and the panel to the bottom and the log follows new lines until the editor scrolls up).
   Colours: "Fast Analysis" blue (`.fast`), "Frame-by-Frame Analysis" yellow (`.fbf`; `log()` colours both
   phrases automatically), warnings orange (`.warning`, log class `warn`). Preview was removed in 2.3.0.
 - `index.js` — everything else (R3D reader, analysis, Premiere edits). Plain JS, no build step.
@@ -122,7 +123,9 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   splits the clip there), then finds the copy (starts at the cut with the original's in point) plus any audio at the
   same span and ripple-deletes it with `createRemoveItemsAction(sel, true, MediaType.ANY, false)`, then checks the
   left/right halves and the next clip's position. Done after rotation, so both halves keep the keyframes. Skipped
-  for speed-changed clips. Not yet confirmed in Premiere (mock-tested only, 2.4.0).
+  for speed-changed clips. Premiere test of 2.4.6 (Jacob, 2026-10-22): the insert split the clip but the copy was NOT
+  removed. 2.4.7 finds the copy by start time only, tries the remove as ANY+audio, VIDEO, ANY and checks the timeline
+  after each, logs which failed (with Premiere's error), and stops further cuts after a failure.
 
 ## Test clips (H:\01_VIDEO\2026_10_01) and expected results
 - `01_CARD\A001_1001MB.RDM\A001_A004_1001FB.RDC` — upright throughout (5660 frames, frame0 405245802).

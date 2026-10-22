@@ -11,7 +11,7 @@ USE
   active sequence.
 - Analyze & Flip: reads each RED clip's motion data straight from its .R3D files,
   works out which sections are upside-down, and corrects them.
-- Remove Rotation: removes REDFlipper's correction from the clips in scope. It only undoes
+- Undo: removes REDFlipper's correction from the clips in scope. It only undoes
   what the current Advanced options apply (the bottom of the Advanced section explains it):
   the Transform by default, Motion > Rotation with the Motion option, the Source Transform
   with the Source option.
@@ -26,12 +26,13 @@ ADVANCED OPTIONS (remembered between sessions)
 - Apply Rotation to Clip "Motion" Effect: puts the rotation in Motion > Rotation instead
   of a Transform effect. Existing Motion rotation keyframes are replaced.
 - Apply Rotation to Source Clip: puts the Transform on the source (master) clip, so every
-  instance of that clip in the project is flipped. Overrides the Motion option.
+  instance of that clip in the project is flipped. Overrides the Motion option (shown greyed out, (IGNORED)).
 - Add Cut at each Flip Point: cuts the timeline clip where the camera flips (not with the
   Source option). Premiere's plugin API has no razor, so the cut is made by inserting a
   copy of the clip at the flip point (which splits it) and ripple-deleting the copy; both
-  halves keep all effects. Remove Rotation does not rejoin cuts: use Ctrl+Z, or right-click
-  the cut > Join Through Edits.
+  halves keep all effects. Undo does not rejoin cuts: use Ctrl+Z, or right-click
+  the cut > Join Through Edits (Ctrl + Left-click drag to select multiple cut points).
+  Greyed out and marked (IGNORED) when Apply Rotation to Source Clip is on.
 - Auto-Backup Project (on by default): every time Analyze & Flip is used, saves the
   project (like Ctrl+S), then puts a timestamped copy (<project>-REDFlipper-<date>_<time>.prproj)
   in the "Adobe Premiere Pro Auto-Save" folder next to the project, before anything is

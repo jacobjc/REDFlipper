@@ -61,9 +61,10 @@ async function openFolder(dir) {
 // Lines are never deleted: each run appends below the last one. The log keeps following new
 // lines unless the editor has scrolled up to read something. `link` = { path, folder } adds a
 // clickable path at the end of the line.
+let logSticky = true;   // follow new lines; off while the editor has scrolled up in the log
+
 function log(msg, cls, link) {
   const box = $("log");
-  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
   const d = document.createElement("div");
   for (const part of String(msg).split(METHOD_RE)) {
     if (!part) continue;
@@ -77,10 +78,15 @@ function log(msg, cls, link) {
   if (link) d.appendChild(pathLink(link.path, link.folder));
   if (cls) d.className = cls;
   box.appendChild(d);
-  if (atBottom) box.scrollTop = box.scrollHeight;
+  if (logSticky) box.scrollTop = box.scrollHeight;
 }
 
+// A new run jumps the log and the panel to the bottom, and the log sticks there again.
 function startRun(label) {
+  logSticky = true;
+  for (const el of [document.documentElement, document.body]) {
+    try { if (el) el.scrollTop = el.scrollHeight; } catch (e) { /* not scrollable */ }
+  }
   if ($("log").childNodes.length) log(" ");
   log(`── ${label} · ${new Date().toLocaleTimeString()} ──`, "dim");
 }
@@ -89,7 +95,7 @@ function status(msg) { $("status").textContent = msg || ""; }
 
 // ------------------------------------------------------------------ advanced options
 
-const OPTIONS = ["optForceFbf", "optMotion", "optSource", "optCuts", "optAutoSave"];
+const OPTIONS = ["optCuts", "optMotion", "optSource", "optForceFbf", "optAutoSave"];
 const DEFAULT_ON = new Set(["optAutoSave"]);   // Auto-Backup Project: checked until the editor unticks it
 const opt = (id) => $(id).classList.contains("on");
 
@@ -120,7 +126,7 @@ function loadOptions() {
 // where the rotation goes: "transform" (default), "motion" or "source"
 const applyMode = () => (opt("optSource") ? "source" : opt("optMotion") ? "motion" : "transform");
 
-// What "Remove Rotation" does with the current options; shown at the bottom of Advanced.
+// What "Undo" does with the current options; shown at the bottom of Advanced.
 function undoText() {
   const mode = applyMode();
   let text = {
@@ -130,8 +136,10 @@ function undoText() {
     source: "removes the Source Transform from the source clips of the clips in scope, so every instance in the project " +
             "goes back to upright. Timeline effects are left alone.",
   }[mode];
-  if (opt("optCuts") && mode !== "source") text += " Cuts stay: use Ctrl+Z, or right-click a cut > Join Through Edits.";
-  return "Undo (Remove Rotation): " + text;
+  if (opt("optCuts") && mode !== "source") {
+    text += " Cuts stay: use Ctrl+Z, or right-click a cut > Join Through Edits.\nCtrl + Left-click drag to select multiple cut points.";
+  }
+  return "Undo: " + text;
 }
 
 // scope switch: on = selected clips only, off = every clip in the active sequence
@@ -550,16 +558,18 @@ async function sourceChain(cpi) {
   catch (e) { return null; }
 }
 
-// One undoable step. Returns false if Premiere refused it.
+// One undoable step. Returns false if Premiere refused it (the reason, if any, in lastTxError).
+let lastTxError = "";
 function transact(project, label, makeActions) {
   let ok = false;
+  lastTxError = "";
   try {
     project.lockedAccess(() => {
       ok = project.executeTransaction((ca) => {
         for (const a of makeActions()) ca.addAction(a);
       }, `REDFlipper: ${label}`);
     });
-  } catch (err) { ok = false; }
+  } catch (err) { ok = false; lastTxError = err && err.message ? err.message : String(err); }
   return ok;
 }
 
@@ -766,43 +776,63 @@ function emptySelection() {
   });
 }
 
-// Cuts the clip covering `at` on a video track. Returns true, or the reason it didn't work.
+// Cuts the clip covering `at` on a video track. Returns true, or { msg, stop } when it didn't
+// work (stop: the timeline may be left in a half-done state, so no further cuts are tried).
 async function cutAt(c, editor, trackIndex, at, tol) {
   const near = (a, b) => (a > b ? a - b : b - a) <= tol;
   const before = await trackClips(c.seq, trackIndex);
   const a = before.find((x) => x.start + tol < at && at + tol < x.end);
-  if (!a) return "no clip covers that point";
+  if (!a) return { msg: "no clip covers that point" };
   const next = before.filter((x) => x.start + tol >= a.end).sort((x, y) => (x.start < y.start ? -1 : 1))[0];
 
   // 1. insert a copy of the clip at the flip point
   if (!transact(c.project, "cut at flip point", () =>
     [editor.createCloneTrackItemAction(a.item, tickTime(at - a.start), 0, 0, true, true)])) {
-    return "Premiere refused the edit (locked track?)";
+    return { msg: `Premiere refused the edit (locked track?)${lastTxError ? `: ${lastTxError}` : ""}` };
   }
-  // 2. ripple-delete the copy (it starts at the cut with the original's in point), and its audio
-  const copy = (await trackClips(c.seq, trackIndex)).find((x) => near(x.start, at) && near(x.inP, a.inP));
-  if (!copy) return "the inserted copy wasn't found, please check the timeline (Ctrl+Z undoes it)";
-  const sel = await emptySelection();
-  sel.addItem(copy.item, false);
+  // 2. the copy is the clip that now starts at the cut (the rest of the original moved to after it)
+  const copy = (await trackClips(c.seq, trackIndex)).find((x) => near(x.start, at));
+  if (!copy) return { stop: true, msg: "the inserted copy wasn't found. Please check the timeline (Ctrl+Z undoes it)" };
+  const audio = [];
   try {
     const n = await c.seq.getAudioTrackCount();
     for (let i = 0; i < n; i++) {
       const track = await c.seq.getAudioTrack(i);
       for (const ai of await track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false)) {
-        if (near(ticksOf(await ai.getStartTime()), at) && near(ticksOf(await ai.getEndTime()), copy.end)) sel.addItem(ai, false);
+        if (near(ticksOf(await ai.getStartTime()), at) && near(ticksOf(await ai.getEndTime()), copy.end)) audio.push(ai);
       }
     }
   } catch (e) { /* no audio */ }
-  if (!transact(c.project, "cut at flip point", () =>
-    [editor.createRemoveItemsAction(sel, true, ppro.Constants.MediaType.ANY, false)])) {
-    return "couldn't remove the inserted copy, please check the timeline (Ctrl+Z undoes it)";
+
+  // 3. ripple-delete the copy. Premiere may refuse or ignore one form of the remove, so try a few
+  // and check the timeline after each.
+  const MT = ppro.Constants.MediaType;
+  const attempts = [["video + audio", [copy.item, ...audio], MT.ANY], ["video only", [copy.item], MT.VIDEO],
+                    ["video, any media", [copy.item], MT.ANY]];
+  const tried = [];
+  let removed = false;
+  for (const [label, items, type] of attempts) {
+    if (label === "video + audio" && !audio.length) continue;
+    let selected = true;
+    const sel = await emptySelection();
+    for (const it of items) if (sel.addItem(it, false) === false) selected = false;
+    const ok = transact(c.project, "cut at flip point", () => [editor.createRemoveItemsAction(sel, true, type, false)]);
+    const now = await trackClips(c.seq, trackIndex);
+    if (!now.some((x) => near(x.start, at) && near(x.end, copy.end))) { removed = true; break; }
+    tried.push(`${label}: ${!selected ? "couldn't select it" : ok ? "ran, copy still there" : `refused${lastTxError ? ` (${lastTxError})` : ""}`}`);
   }
-  // 3. check: the clip ends at the cut, the rest starts there, and whatever followed is back in place
+  if (!removed) {
+    return { stop: true, msg: `Premiere didn't remove the inserted copy [${tried.join("; ")}]. ` +
+                              "The clip is split with the copy in between: Ctrl+Z undoes it" };
+  }
+  // 4. check: the clip ends at the cut, the rest starts there, and whatever followed is back in place
   const after = await trackClips(c.seq, trackIndex);
   const left = after.some((x) => near(x.start, a.start) && near(x.end, at));
-  const right = after.some((x) => near(x.start, at) && near(x.end, a.end) && near(x.inP, a.inP + (at - a.start)));
+  const right = after.some((x) => near(x.start, at) && near(x.end, a.end));
   const nextOk = !next || after.some((x) => near(x.start, next.start) && near(x.inP, next.inP));
-  if (!(left && right && nextOk)) return "the timeline didn't come out as expected, please check it (Ctrl+Z undoes it)";
+  if (!(left && right && nextOk)) {
+    return { stop: true, msg: "the timeline didn't come out as expected. Please check it (Ctrl+Z undoes it)" };
+  }
   return true;
 }
 
@@ -833,13 +863,17 @@ async function addCuts(c, clips) {
   for (let i = 0; i < cuts.length; i++) {
     status(`Adding cuts ${i + 1} / ${cuts.length}…`);
     try { cuts[i].r = await cutAt(c, editor, cuts[i].track, cuts[i].at, perFrame / 2n); }
-    catch (e) { cuts[i].r = e && e.message ? e.message : String(e); }
+    catch (e) { cuts[i].r = { stop: true, msg: e && e.message ? e.message : String(e) }; }
+    if (cuts[i].r !== true && cuts[i].r.stop) {
+      for (const rest of cuts.slice(i + 1)) rest.r = { msg: "skipped because another cut failed" };
+      break;
+    }
   }
   // report in timeline order
   cuts.sort((x, y) => (x.at < y.at ? -1 : x.at > y.at ? 1 : x.track - y.track));
   for (const { t, at, r } of cuts) {
     if (r === true) log(`Added cut point at ${toTc(at)}. (${t.name})`);
-    else log(`${t.name}: couldn't add a cut at ${toTc(at)}: ${r}.`, "warn");
+    else log(`${t.name}: couldn't add a cut at ${toTc(at)}: ${r.msg}.`, r.stop ? "err" : "warn");
   }
   return cuts.filter((x) => x.r === true).length;
 }
@@ -888,7 +922,7 @@ async function analyseAndFlip() {
     } else if (kind === "inverted" || kind === "mixed") {
       if (s.scan.ours) {
         log(`${s.name}: already flipped by a Source Transform (all instances). Skipped. ` +
-            "Use “Remove Rotation” first to flip its timeline clips instead.", "warn");
+            "Use “Undo” with “Apply Rotation to Source Clip” checked first to flip its timeline clips instead.", "warn");
         continue;
       }
       for (const t of s.targets) {
@@ -1027,14 +1061,14 @@ async function analyseAndFlip() {
   log(`Done: ${updated.size} clip(s) updated. Applied to ${scope} ${how}` +
       (cutCount ? `, with ${cutCount} cut(s) at flip points` : "") +
       (bad.size ? ` (${bad.size} clip(s) failed, see above)` : "") +
-      `. To Undo, use “Remove Rotation”.`, bad.size ? "warn" : "ok");
+      `. To undo, use “Undo”.`, bad.size ? "warn" : "ok");
 }
 
-// Remove Rotation only undoes what the current options apply (see undoText): REDFlipper's
+// Undo (Remove Rotation) only undoes what the current options apply (see undoText): REDFlipper's
 // Transform by default, Motion > Rotation with the Motion option, the Source Transform with the
 // Source option. Cuts are never rejoined (the API has no way to).
 async function removeRotation() {
-  startRun("Remove Rotation");
+  startRun("Undo");
   const mode = applyMode();
   const c = await collect();
   if (!c.targets.length) return log("Done: 0 clip(s) updated. No RED clips in scope.", "ok");
@@ -1078,7 +1112,10 @@ async function removeRotation() {
   const what = { transform: "REDFlipper Transform", motion: "REDFlipper Motion rotation", source: "Source Transform" }[mode];
   if (!found) log(`Done: 0 clip(s) updated. No ${what} found on RED clips in scope.`, "ok");
   else log(`Done: ${updated.size} clip(s) updated. ${summary}`, failed.length ? "warn" : "ok");
-  if (opt("optCuts") && mode !== "source") log("Cuts added at flip points stay in place: use Ctrl+Z, or right-click a cut > Join Through Edits.", "dim");
+  if (opt("optCuts") && mode !== "source") {
+    log("Cuts added at flip points stay in place: use Ctrl+Z, or right-click a cut > Join Through Edits.", "dim");
+    log("Ctrl + Left-click drag to select multiple cut points.", "dim");
+  }
 }
 
 // ------------------------------------------------------------------ wire up
@@ -1091,6 +1128,10 @@ async function removeRotation() {
 })();
 
 loadOptions();
+$("log").addEventListener("scroll", () => {
+  const box = $("log");
+  logSticky = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+});
 $("flip").addEventListener("click", () => guarded(analyseAndFlip));
 $("remove").addEventListener("click", () => guarded(removeRotation));
 $("stop").addEventListener("click", () => { stopRequested = true; status("Stopping…"); });
