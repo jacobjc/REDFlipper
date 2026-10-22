@@ -30,7 +30,7 @@ const MIN_HOLD_S = 2.0;          // ignore orientation changes shorter than this
 // stabilize (level every frame) settings
 const STAB_SMOOTH_US = 50000;    // level angle = gravity averaged over ± 50 ms around each frame
 const STAB_TOLERANCE = 0.05;     // degrees: keys a straight line between their neighbours already gives are dropped
-const ROLL_SIGN = 1;             // direction of the correction; -1 if leveling turns the wrong way
+const ROLL_SIGN = -1;            // direction of the correction (2.5.3 used +1; reversed in 2.5.4 after Jacob's test)
 
 let busy = false;
 let stopRequested = false;

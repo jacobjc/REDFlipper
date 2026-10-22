@@ -136,8 +136,8 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   (0.05° tolerance), LINEAR interpolation. `stabPlan(result)` caches it on the analysis result (which keeps `clip`
   rows). Plan kind "stab" flows through the same apply path as "mixed" (any mode), cuts off. Fast Analysis is fine
   (same motion samples as Frame-by-Frame); 2.5.0 forced FBF, dropped in 2.5.1 at Jacob's request.
-- Accelerometer, not gyro: RED gyro values don't integrate to real angles (see above). ROLL_SIGN = 1 is a guess
-  (axis direction of +Y unconfirmed): if leveling turns the wrong way in Premiere, set it to -1.
+- Accelerometer, not gyro: RED gyro values don't integrate to real angles (see above). ROLL_SIGN was +1 (a guess) through 2.5.3;
+  Jacob asked to reverse it after testing, so 2.5.4 uses -1. Still to be confirmed on a tilted shot.
 - Undo in Motion mode with Stabilize on treats any keyframed Motion rotation as REDFlipper's (`isMotionFlip(..., true)`).
 - Keyframe interpolation/stray matching walks sorted lists (thousands of keys per clip).
 
