@@ -69,7 +69,7 @@ function status(msg) { $("status").textContent = msg || ""; }
 
 // ------------------------------------------------------------------ advanced options
 
-const OPTIONS = ["optForceFbf", "optMotion", "optSource", "optCuts"];
+const OPTIONS = ["optForceFbf", "optMotion", "optSource", "optCuts", "optAutoSave"];
 const opt = (id) => $(id).classList.contains("on");
 
 function setOpt(id, on) {
@@ -106,6 +106,7 @@ function undoText() {
             "goes back to upright. Timeline effects are left alone.",
   }[mode];
   if (opt("optCuts") && mode !== "source") text += " Cuts stay: use Ctrl+Z, or right-click a cut > Join Through Edits.";
+  if (opt("optAutoSave")) text += " A copy of the project from just before each run is in the “Adobe Premiere Pro Auto-Save” folder.";
   if (opt("optForceFbf")) text += " (Force Frame-by-Frame Analysis doesn't change undo.)";
   return "Undo (Remove Rotation): " + text;
 }
@@ -546,6 +547,56 @@ function runPhase(project, label, entries, makeActions) {
   return entries.filter((e) => !transact(project, label, () => makeActions(e)));
 }
 
+// ------------------------------------------------------------------ auto-save
+
+async function makeDir(dir) {
+  for (const p of [dir, asUrl(dir)]) {
+    try { if ((await fs.lstat(p)).isDirectory()) return; } catch (e) { /* not there yet */ }
+  }
+  let err;
+  for (const p of [dir, asUrl(dir)]) {
+    try { await fs.mkdir(p, { recursive: true }); return; } catch (e) { err = e; }
+  }
+  throw err;
+}
+
+async function copyTo(src, dest) {
+  for (const [a, b] of [[src, dest], [asUrl(src), asUrl(dest)]]) {
+    try { await fs.copyFile(a, b); return; } catch (e) { /* next form */ }
+  }
+  let data = null;
+  for (const a of [src, asUrl(src)]) {
+    try { data = await fs.readFile(a); break; } catch (e) { /* next form */ }
+  }
+  if (!data) throw new Error(`can't read ${src}`);
+  try { await fs.writeFile(dest, data); } catch (e) { await fs.writeFile(asUrl(dest), data); }
+}
+
+// Saves the project (like Ctrl+S) and puts a timestamped copy in the "Adobe Premiere Pro
+// Auto-Save" folder next to it, where Premiere keeps its own auto-saves. The plugin can't
+// trigger Premiere's own auto-save, and only a saved file holds the project's current state.
+async function autoSave(project) {
+  const p = project.path;
+  if (!p) return log("Auto-Save skipped: this project hasn't been saved yet.", "warn");
+  status("Saving project…");
+  let saved;
+  try { saved = await project.save(); } catch (e) { saved = false; }
+  if (saved === false) return log("Auto-Save failed: Premiere didn't save the project. Continuing without a backup.", "warn");
+  const s = sep(p);
+  const dir = p.slice(0, p.lastIndexOf(s)) + s + "Adobe Premiere Pro Auto-Save";
+  const base = p.slice(p.lastIndexOf(s) + 1).replace(/\.prproj$/i, "");
+  const d = new Date(), z = (n) => String(n).padStart(2, "0");
+  const name = `${base}-REDFlipper-${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}_` +
+               `${z(d.getHours())}-${z(d.getMinutes())}-${z(d.getSeconds())}.prproj`;
+  try {
+    await makeDir(dir);
+    await copyTo(p, dir + s + name);
+    log(`Auto-Saved: project saved, copy in Adobe Premiere Pro Auto-Save${s}${name}`, "dim");
+  } catch (e) {
+    log(`Project saved, but the Auto-Save copy failed (${e && e.message ? e.message : e}). Continuing.`, "warn");
+  }
+}
+
 // ------------------------------------------------------------------ collect + analyse
 
 async function collect() {
@@ -798,6 +849,9 @@ async function analyseAndFlip() {
   log(`Applying: ${nInv} whole-clip flip(s), ${units.length - nInv} mid-take flip ${what}` +
       (cleaned.size ? `, ${cleaned.size} upright clip(s) cleaned up` : "") + " …");
 
+  if (opt("optAutoSave")) await autoSave(project);
+  status("Applying rotation…");
+
   const bad = new Set();
   const note = (list, what) => list.forEach((t) => { bad.add(t); log(`${t.name}: failed to ${what}`, "err"); });
 
@@ -929,6 +983,7 @@ async function removeRotation() {
   if (!c.targets.length) return log("Done: 0 clip(s) updated. No RED clips in scope.", "ok");
   const updated = new Set();
   let failed = [], found = 0, summary = "";
+  if (opt("optAutoSave")) await autoSave(c.project);
 
   if (mode === "transform") {
     const withTransform = c.targets.filter((t) => t.scan.ours);

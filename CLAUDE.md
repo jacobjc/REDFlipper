@@ -13,7 +13,7 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
 - `index.html` — panel UI: icon + title/version + "by Jacob J. Christiansen"; "Selected clips only" toggle
   switch (a styled div, `.on` class = selected only; off = whole sequence); Analyze & Flip, Remove Rotation,
   Stop; Advanced button revealing four option checkboxes (styled divs `.opt`, `.on` = checked, saved in
-  localStorage as `redflipper.<id>`): `optForceFbf`, `optMotion`, `optSource`, `optCuts`; status line, per-clip
+  localStorage as `redflipper.<id>`): `optForceFbf`, `optMotion`, `optSource`, `optCuts`, `optAutoSave`; status line, per-clip
   progress bar, log (fills remaining height, scrolls, never cleared: each run appends under a dim header).
   Colours: "Fast Analysis" blue (`.fast`), "Frame-by-Frame Analysis" yellow (`.fbf`; `log()` colours both
   phrases automatically), warnings orange (`.warning`, log class `warn`). Preview was removed in 2.3.0.
@@ -105,6 +105,10 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   get every level cleaned. Remove Rotation (2.4.1) only undoes the current mode's level: Transform by default,
   Motion flip with `optMotion`, Source Transform with `optSource`; `#undoInfo` (bottom of Advanced, `undoText()`)
   explains the current undo and updates on every option change.
+- Auto-Save (`optAutoSave`, 2.4.2): no API triggers Premiere's own auto-save. `autoSave()` calls `project.save()`, then
+  copies `project.path` (UXP fs `copyFile`, fallback read/write; works with `\` or `/` paths) to
+  `<project folder>/Adobe Premiere Pro Auto-Save/<name>-REDFlipper-YYYY-MM-DD_HH-MM-SS.prproj`. Runs right before
+  the first edit of Analyze & Flip, and before Remove Rotation. Failures are logged and the run continues.
 - Cuts (`optCuts`, not in Source mode): the UXP API has no razor (Adobe: not planned for 1.0). `cutAt` uses
   `SequenceEditor.createCloneTrackItemAction(item, offset, 0, 0, true, isInsert=true)` at the flip point (an insert
   splits the clip there), then finds the copy (starts at the cut with the original's in point) plus any audio at the
