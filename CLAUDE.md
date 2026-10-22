@@ -29,6 +29,11 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
 - `icons/` — plugin + panel icons. `redflipper.svg` is the source (flippers icon by Anna Pasechnaia,
   Noun Project, CC BY 3.0, credited in README); the PNGs (panel 23/46, plugin 48/96, header 64) are rendered
   from it, cropped to a square. `README.txt` — user-facing notes.
+- Logo animation (2.5.8): UXP runs no CSS animations/transitions/transforms, so `icons/spin/r000.png`…`r357.png`
+  (120 frames, 3° steps, 84×84, clockwise, rendered from the SVG matched to header.png) are stacked in `#logoBox` and
+  toggled with `style.display` by `animateLogo()` (setTimeout ~16 ms). Analyze & Flip: one clockwise turn with a
+  back-out overshoot (1.1 s); Analyze & Stabilize: a small decaying rock (±15°, 1.4 s). Ends on the static header.png.
+- Auto-Backup Project label carries a grey "(Recommended)" (`.dim`), 2.5.8.
 - Builds are named `REDFlipper-v<version>.ccx` and saved one folder up (`C:\Users\Jacob\Videos\Plugins`);
   the newest one is attached to the matching GitHub release.
 

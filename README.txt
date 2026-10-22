@@ -41,7 +41,7 @@ ADVANCED OPTIONS (remembered between sessions)
   corrected too. One linear keyframe on every frame. Goes to the Transform, Motion or
   Source Clip like a flip. Disables cuts. Rotating
   shows the frame's corners; scale up to hide them.
-- Auto-Backup Project (on by default): every time Analyze & Flip (or Analyze & Stabilize) is used, saves the
+- Auto-Backup Project (recommended, on by default): every time Analyze & Flip (or Analyze & Stabilize) is used, saves the
   project (like Ctrl+S), then puts a timestamped copy (<project>-REDFlipper-<date>_<time>.prproj)
   in the "Adobe Premiere Pro Auto-Save" folder next to the project, before anything is
   changed. The bottom of Advanced shows the folder and the last backup. Click a backup

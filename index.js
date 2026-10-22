@@ -103,6 +103,52 @@ function startRun(label) {
 
 function status(msg) { $("status").textContent = msg || ""; }
 
+// ------------------------------------------------------------------ logo animation
+
+// CSS animations and transforms don't run in UXP panels, so the logo turns by flicking through
+// pre-rotated frames (icons/spin/rNNN.png, every 3° clockwise), all loaded up front and hidden.
+const SPIN_STEP = 3, SPIN_FRAMES = 120;
+let spinFrames = null, spinShown = -1, spinTimer = null;
+
+function initLogo() {
+  try {
+    spinFrames = [];
+    for (let i = 0; i < SPIN_FRAMES; i++) {
+      const img = document.createElement("img");
+      img.src = `icons/spin/r${String(i * SPIN_STEP).padStart(3, "0")}.png`;
+      img.className = "spinFrame";
+      img.style.display = "none";
+      $("logoBox").appendChild(img);
+      spinFrames.push(img);
+    }
+  } catch (e) { spinFrames = null; }   // no animation, the static logo stays
+}
+
+function showLogoAngle(deg) {
+  const i = deg === null ? -1 : ((Math.round(deg / SPIN_STEP) % SPIN_FRAMES) + SPIN_FRAMES) % SPIN_FRAMES;
+  if (i === spinShown) return;
+  if (spinShown >= 0) spinFrames[spinShown].style.display = "none";
+  if (i >= 0) spinFrames[i].style.display = "";
+  $("logo").style.display = i >= 0 ? "none" : "";
+  spinShown = i;
+}
+
+// Analyze & Flip: one full clockwise turn that overshoots a little and settles back.
+// Analyze & Stabilize: a small rock back and forth that dies away.
+function animateLogo(stabilize) {
+  if (!spinFrames) return;
+  if (spinTimer) clearTimeout(spinTimer);
+  const dur = stabilize ? 1400 : 1100, t0 = Date.now();
+  const backOut = (x) => { const c = 1.3; return 1 + (c + 1) * (x - 1) ** 3 + c * (x - 1) ** 2; };
+  const angle = (x) => (stabilize ? 15 * Math.sin(x * 4 * Math.PI) * (1 - x) : 360 * backOut(x));
+  const tick = () => {
+    const x = Math.min(1, (Date.now() - t0) / dur);
+    if (x < 1) { showLogoAngle(angle(x)); spinTimer = setTimeout(tick, 16); }
+    else { showLogoAngle(null); spinTimer = null; }
+  };
+  tick();
+}
+
 // ------------------------------------------------------------------ advanced options
 
 const OPTIONS = ["optCuts", "optStabilize", "optMotion", "optSource", "optForceFbf", "optAutoSave"];
@@ -1243,7 +1289,8 @@ $("log").addEventListener("scroll", () => {
   const box = $("log");
   logSticky = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
 });
-$("flip").addEventListener("click", () => guarded(analyseAndFlip));
+initLogo();
+$("flip").addEventListener("click", () => { if (!busy) animateLogo(opt("optStabilize")); guarded(analyseAndFlip); });
 $("remove").addEventListener("click", () => guarded(removeRotation));
 $("stop").addEventListener("click", () => { stopRequested = true; status("Stopping…"); });
 $("scopeSwitch").addEventListener("click", () => { if (!busy) setSelectedOnly(!selectedOnly()); });

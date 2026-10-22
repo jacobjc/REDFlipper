@@ -7,7 +7,11 @@
     body { color: var(--uxp-host-text-color, #ddd); font-size: 12px; padding: 10px 12px; margin: 0;
            display: flex; flex-direction: column; box-sizing: border-box; overflow-y: auto; }
     #header { display: flex; align-items: center; margin: 0 0 8px; }
-    #logo { width: 32px; height: 32px; margin-right: 8px; }
+    #logoBox { position: relative; width: 32px; height: 32px; margin-right: 8px; flex-shrink: 0; }
+    #logo { width: 32px; height: 32px; }
+    /* animation frames (icons/spin, pre-rotated every 3°): larger than the logo so the corners
+       never clip while it turns, centred on it */
+    .spinFrame { position: absolute; left: -5px; top: -5px; width: 42px; height: 42px; }
     h1 { font-size: 14px; margin: 0; }
     #version { font-size: 10px; font-weight: normal; color: #777; margin-left: 6px; }
     #author { font-size: 10px; color: #777; margin-top: 2px; }
@@ -58,7 +62,7 @@
 </head>
 <body>
   <div id="header">
-    <img id="logo" src="icons/header.png">
+    <div id="logoBox"><img id="logo" src="icons/header.png"></div>
     <div>
       <h1>REDFlipper<span id="version"></span></h1>
       <div id="author">by Jacob J. Christiansen</div>
@@ -92,7 +96,7 @@
       <div class="optText">Force <span class="fbf">Frame-by-Frame Analysis</span>
         <span class="warning">(Warning: SLOW, doesn't improve quality)</span></div></div>
     <div class="opt" id="optAutoSave" role="checkbox" aria-checked="false"><div class="box"></div>
-      <div class="optText">Auto-Backup Project</div></div>
+      <div class="optText">Auto-Backup Project <span class="dim">(Recommended)</span></div></div>
     <div id="undoInfo"></div>
     <div id="backupInfo"></div>
   </div>
