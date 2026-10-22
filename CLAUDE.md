@@ -15,7 +15,7 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
 - `index.html` — panel UI: icon + title/version + "by Jacob J. Christiansen"; "Selected clips only" toggle
   switch (a styled div, `.on` class = selected only; off = whole sequence); Analyze & Flip, Undo (= Remove Rotation, renamed 2.4.7),
   Stop, Advanced, all in one row; Advanced reveals five option checkboxes (styled divs `.opt`, `.on` = checked, saved in
-  localStorage as `redflipper.<id>`; each label's warning is on its own line below it): in order `optCuts`, `optMotion`, `optSource`, `optStabilize`, `optForceFbf`, `optAutoSave`; `showOverrides()` greys out
+  localStorage as `redflipper.<id>`; each label's warning is on its own line below it): in order `optCuts`, `optStabilize`, `optMotion`, `optSource`, `optForceFbf`, `optAutoSave`; `showOverrides()` greys out
   overridden ones (Source → Motion and Cuts off; Stabilize → Cuts off; `forcedState()`), showing the forced state in a
   grey box (no tick when forced off) and ignoring clicks; the saved `.on` state returns when the override ends. Only
   colours change when greyed (no tags since 2.5.1: Jacob found the layout shift jarring); status line, per-clip

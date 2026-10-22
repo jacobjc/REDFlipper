@@ -100,7 +100,7 @@ function status(msg) { $("status").textContent = msg || ""; }
 
 // ------------------------------------------------------------------ advanced options
 
-const OPTIONS = ["optCuts", "optMotion", "optSource", "optStabilize", "optForceFbf", "optAutoSave"];
+const OPTIONS = ["optCuts", "optStabilize", "optMotion", "optSource", "optForceFbf", "optAutoSave"];
 const DEFAULT_ON = new Set(["optAutoSave"]);   // Auto-Backup Project: checked until the editor unticks it
 const opt = (id) => $(id).classList.contains("on");
 
