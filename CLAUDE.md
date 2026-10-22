@@ -12,8 +12,11 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
   (needed: the plugin opens R3Ds itself).
 - `index.html` — panel UI: icon + title/version + "by Jacob J. Christiansen"; "Selected clips only" toggle
   switch (a styled div, `.on` class = selected only; off = whole sequence); Analyze & Flip, Remove Rotation,
-  Stop; Advanced button revealing a placeholder section (options TBD); status line, per-clip progress bar, log
-  (fills remaining height). Preview was removed in 2.3.0.
+  Stop; Advanced button revealing four option checkboxes (styled divs `.opt`, `.on` = checked, saved in
+  localStorage as `redflipper.<id>`): `optForceFbf`, `optMotion`, `optSource`, `optCuts`; status line, per-clip
+  progress bar, log (fills remaining height, scrolls, never cleared: each run appends under a dim header).
+  Colours: "Fast Analysis" blue (`.fast`), "Frame-by-Frame Analysis" yellow (`.fbf`; `log()` colours both
+  phrases automatically), warnings orange (`.warning`, log class `warn`). Preview was removed in 2.3.0.
 - `index.js` — everything else (R3D reader, analysis, Premiere edits). Plain JS, no build step.
 - `icons/` — plugin + panel icons. `redflipper.svg` is the source (flippers icon by Anna Pasechnaia,
   Noun Project, CC BY 3.0, credited in README); the PNGs (panel 23/46, plugin 48/96, header 64) are rendered
@@ -59,9 +62,10 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   - `RIX\x02`: after 64-byte header + 4 bytes (`01 01 0f a0`), entries `[u32 offset in 4096-byte pages][u32 size]`,
     one per RDX block in that chunk.
   - `REOF`/`REOC`: u32 frame count of the chunk at block offset +92.
-- Fast path (index.js `readChunkIndexed`): read last 64 KB, parse RIX\x02 + REOF/REOC, read only the listed
-  RDX blocks (verified to start with `RDX\x02`). Fallback `readChunkWalk` steps through every block header
-  (~1000 reads per 4 GB chunk; very slow through UXP fs). Chunks read 6 in parallel.
+- Fast path = "Fast Analysis" (index.js `readChunkIndexed`): read last 64 KB, parse RIX\x02 + REOF/REOC, read only the listed
+  RDX blocks (verified to start with `RDX\x02`). Fallback `readChunkWalk` = "Frame-by-Frame Analysis" steps
+  through every block header (~1000 reads per 4 GB chunk; very slow through UXP fs); logged once per clip when it
+  kicks in, or forced by the `optForceFbf` option. Chunks read 6 in parallel. Results cached per method + path.
 - REDline equivalents for checking: `REDline -i <clip>_001.R3D -printMeta 1` (FPS, Record FPS, Total Frames),
   `-printMeta 5` (per-frame timestamps), `-printMeta 7` (motion CSV: Timestamp, Acceleration X/Y/Z, Rotation X/Y/Z).
 - Format layout first learned from Gyroflow's telemetry-parser (MIT/Apache-2.0, src/red/mod.rs); the index
@@ -93,6 +97,18 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   Remove deletes it). Motion > Rotation is left for the editor. `isLegacyMotionFlip` cleans up v1.0, which
   used Motion rotation.
 - After applying, a "Keyframe test PASSED/FAILED" line checks one mid-take clip holds its value up to the flip.
+- Apply modes (2.4.0): Transform (default), Motion (`optMotion`: Motion > Rotation; a 0/180-only Motion rotation
+  counts as REDFlipper's, `isMotionFlip`), Source (`optSource`: Transform on the master clip via
+  `ClipProjectItem.getComponentChain(MediaType.VIDEO)`, all instances). Each run first removes REDFlipper rotation
+  that would double-flip (Transform in Motion mode, Motion flip in Transform mode, timeline flips in Source mode);
+  in Transform/Motion mode a source that already has a Source Transform is skipped with a warning. Upright clips
+  get every level cleaned. Remove Rotation clears all three.
+- Cuts (`optCuts`, not in Source mode): the UXP API has no razor (Adobe: not planned for 1.0). `cutAt` uses
+  `SequenceEditor.createCloneTrackItemAction(item, offset, 0, 0, true, isInsert=true)` at the flip point (an insert
+  splits the clip there), then finds the copy (starts at the cut with the original's in point) plus any audio at the
+  same span and ripple-deletes it with `createRemoveItemsAction(sel, true, MediaType.ANY, false)`, then checks the
+  left/right halves and the next clip's position. Done after rotation, so both halves keep the keyframes. Skipped
+  for speed-changed clips. Not yet confirmed in Premiere (mock-tested only, 2.4.0).
 
 ## Test clips (H:\01_VIDEO\2026_10_01) and expected results
 - `01_CARD\A001_1001MB.RDM\A001_A004_1001FB.RDC` — upright throughout (5660 frames, frame0 405245802).

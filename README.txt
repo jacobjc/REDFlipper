@@ -2,7 +2,7 @@ REDFlipper - Premiere Pro panel
 ===============================
 
 INSTALL / UPDATE
-- Download REDFlipper.ccx and double-click it. Creative Cloud installs the plugin
+- Download REDFlipper-v<version>.ccx and double-click it. Creative Cloud installs the plugin
   (close Premiere first when updating).
 - Then in Premiere: Window > UXP Plugins > REDFlipper.
 
@@ -13,7 +13,22 @@ USE
   works out which sections are upside-down, and corrects them.
 - Remove Rotation: removes REDFlipper's correction from the clips in scope.
 - Stop: cancels a long analysis before anything is changed.
-- Advanced: more options (coming in a later version).
+- The log keeps every line from earlier runs; scroll up to read them.
+  "Fast Analysis" (blue) reads only the motion blocks listed in each R3D chunk's index.
+  If a chunk has no usable index it falls back to "Frame-by-Frame Analysis" (yellow),
+  which walks every block and is much slower.
+
+ADVANCED OPTIONS (remembered between sessions)
+- Force Frame-by-Frame Analysis: always use the slow method.
+- Apply Rotation to Clip "Motion" Effect: puts the rotation in Motion > Rotation instead
+  of a Transform effect. Existing Motion rotation keyframes are replaced.
+- Apply Rotation to Source Clip: puts the Transform on the source (master) clip, so every
+  instance of that clip in the project is flipped. Overrides the Motion option.
+- Add Cut at each Flip Point: cuts the timeline clip where the camera flips (not with the
+  Source option). Premiere's plugin API has no razor, so the cut is made by inserting a
+  copy of the clip at the flip point (which splits it) and ripple-deleting the copy; both
+  halves keep all effects. Remove Rotation does not rejoin cuts: use Ctrl+Z, or right-click
+  the cut > Join Through Edits.
 Nothing is written to disk. Motion data read during a Premiere session is kept in
 memory, so running again doesn't re-read the clips.
 
@@ -22,7 +37,7 @@ WHAT IT DOES
   - whole clip upside-down: Rotation = 180 (no keyframes)
   - flips mid-take: Hold keyframes (0 / 180) at each flip, covering the whole
     source clip, so later trims and extends stay correct.
-- Motion > Rotation is left free for your own use.
+- Motion > Rotation is left free for your own use (unless the Motion option is on).
 - A Transform on a RED clip whose Rotation is 180 or keyframed is treated as
   REDFlipper's (re-running updates it; Remove deletes it). Upright clips that
   carry one get it removed.

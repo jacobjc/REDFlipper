@@ -1,7 +1,8 @@
 // REDFlipper — finds upside-down sections of RED clips from the camera's own
 // accelerometer data (read straight from the .R3D files) and corrects them with a
 // Transform effect: Rotation 180°, keyframed with Hold where the camera flips mid-take.
-// Motion > Rotation is left free for the editor. Nothing is written to disk.
+// Motion > Rotation is left free for the editor unless the Motion option is on; the Source
+// option puts the Transform on the source clip instead. Nothing is written to disk.
 //
 // R3D layout (as read by Gyroflow's telemetry-parser, checked against REDline):
 //   the file is a chain of blocks: [u32 size][4-byte name], each padded to 4096 bytes.
@@ -29,22 +30,69 @@ const MIN_HOLD_S = 2.0;          // ignore orientation changes shorter than this
 let busy = false;
 let stopRequested = false;
 let transformMatch = null;
-const analysisCache = new Map();  // media path -> result, for this Premiere session only
+const analysisCache = new Map();  // analysis method + media path -> result, for this Premiere session only
 
 // ------------------------------------------------------------------ ui helpers
 
 const $ = (id) => document.getElementById(id);
 
+// analysis method names are colour-coded wherever they appear (see .fast / .fbf in index.html)
+const FAST = "Fast Analysis", FBF = "Frame-by-Frame Analysis";
+const METHOD_RE = /(Fast Analysis|Frame-by-Frame Analysis)/;
+
+// Lines are never deleted: each run appends below the last one. The log keeps following new
+// lines unless the editor has scrolled up to read something.
 function log(msg, cls) {
+  const box = $("log");
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
   const d = document.createElement("div");
-  d.textContent = msg;
+  for (const part of String(msg).split(METHOD_RE)) {
+    if (!part) continue;
+    if (part === FAST || part === FBF) {
+      const s = document.createElement("span");
+      s.className = part === FAST ? "fast" : "fbf";
+      s.textContent = part;
+      d.appendChild(s);
+    } else d.appendChild(document.createTextNode(part));
+  }
   if (cls) d.className = cls;
-  $("log").appendChild(d);
-  $("log").scrollTop = $("log").scrollHeight;
+  box.appendChild(d);
+  if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
-function clearLog() { $("log").innerHTML = ""; }
+function startRun(label) {
+  if ($("log").childNodes.length) log(" ");
+  log(`── ${label} · ${new Date().toLocaleTimeString()} ──`, "dim");
+}
+
 function status(msg) { $("status").textContent = msg || ""; }
+
+// ------------------------------------------------------------------ advanced options
+
+const OPTIONS = ["optForceFbf", "optMotion", "optSource", "optCuts"];
+const opt = (id) => $(id).classList.contains("on");
+
+function setOpt(id, on) {
+  if (on) $(id).classList.add("on"); else $(id).classList.remove("on");
+  $(id).querySelector(".box").textContent = on ? "✓" : "";
+  $(id).setAttribute("aria-checked", on ? "true" : "false");
+  // Apply to Source Clip overrides the Motion and cut options: show them as inactive
+  for (const dep of ["optMotion", "optCuts"]) {
+    if (opt("optSource")) $(dep).classList.add("overridden"); else $(dep).classList.remove("overridden");
+  }
+  try { localStorage.setItem(`redflipper.${id}`, on ? "1" : "0"); } catch (e) { /* not remembered */ }
+}
+
+function loadOptions() {
+  for (const id of OPTIONS) {
+    let on = false;
+    try { on = localStorage.getItem(`redflipper.${id}`) === "1"; } catch (e) { /* default off */ }
+    setOpt(id, on);
+  }
+}
+
+// where the rotation goes: "transform" (default), "motion" or "source"
+const applyMode = () => (opt("optSource") ? "source" : opt("optMotion") ? "motion" : "transform");
 
 // scope switch: on = selected clips only, off = every clip in the active sequence
 const selectedOnly = () => $("scopeSwitch").classList.contains("on");
@@ -225,7 +273,9 @@ async function readChunkWalk(fd, bins) {
 }
 
 // Reads frame count, first frame time, frame rates and motion samples (binned) for one clip.
-async function readClip(firstChunkPath, onProgress) {
+// Fast Analysis reads only the motion blocks listed in each chunk's index; Frame-by-Frame
+// Analysis (forced, or the fallback when an index is missing) walks every block.
+async function readClip(firstChunkPath, onProgress, forceWalk, onFallback) {
   const s = sep(firstChunkPath);
   const dir = firstChunkPath.slice(0, firstChunkPath.lastIndexOf(s));
   const file = firstChunkPath.slice(firstChunkPath.lastIndexOf(s) + 1);
@@ -237,7 +287,7 @@ async function readClip(firstChunkPath, onProgress) {
   if (!chunks.length) chunks.push(file);
 
   const bins = new Map();   // bin index -> [sx, sy, sz, n]
-  let meta = {}, frame0 = null, frames = 0, walked = 0;
+  let meta = {}, frame0 = null, frames = 0, walked = 0, fellBack = false;
 
   async function doChunk(name, index) {
     if (stopRequested) throw new Error("stopped");
@@ -263,8 +313,13 @@ async function readClip(firstChunkPath, onProgress) {
           }
         }
       }
-      let n = await readChunkIndexed(fd, await fileSize(path), bins);   // adds samples only if the index checks out
-      if (n === null) { n = await readChunkWalk(fd, bins); walked++; }
+      // the indexed read adds samples only if the index checks out
+      let n = forceWalk ? null : await readChunkIndexed(fd, await fileSize(path), bins);
+      if (n === null) {
+        if (!forceWalk && !fellBack) { fellBack = true; if (onFallback) onFallback(); }
+        n = await readChunkWalk(fd, bins);
+        walked++;
+      }
       frames += n;
     } finally {
       await fs.close(fd);
@@ -338,16 +393,18 @@ function classify(clip) {
   return segs;
 }
 
-function tc(frame, fpsNum, fpsDen) {
-  const nominal = Math.round(fpsNum / fpsDen);
+function tc(frame, fpsNum, fpsDen) { return tcNominal(frame, Math.round(fpsNum / fpsDen)); }
+
+function tcNominal(frame, nominal) {
   const p = (x) => String(x).padStart(2, "0");
   return `${p(Math.floor(frame / (nominal * 3600)))}:${p(Math.floor(frame / (nominal * 60)) % 60)}:` +
          `${p(Math.floor(frame / nominal) % 60)}:${p(frame % nominal)}`;
 }
 
-async function analyse(path, onProgress) {
-  if (analysisCache.has(path)) return analysisCache.get(path);
-  const clip = await readClip(path, onProgress);
+async function analyse(path, onProgress, forceWalk, onFallback) {
+  const key = (forceWalk ? "fbf|" : "fast|") + path;
+  if (analysisCache.has(key)) return analysisCache.get(key);
+  const clip = await readClip(path, onProgress, forceWalk, onFallback);
   const segs = classify(clip);
   let plan;
   if (!segs) plan = { kind: "nodata" };
@@ -358,15 +415,21 @@ async function analyse(path, onProgress) {
     keys: segs.map(([state, start]) => ({ frame: start, value: state === "INV" ? UPSIDE_DOWN : 0, tc: tc(start, clip.fpsNum, clip.fpsDen) })),
   };
   const result = { plan, fpsNum: clip.fpsNum, fpsDen: clip.fpsDen, walked: clip.walked };
-  analysisCache.set(path, result);
+  analysisCache.set(key, result);
   return result;
 }
 
 // ------------------------------------------------------------------ Premiere helpers
 
-function tickTimeAt(frame, num, den) {
-  const ticks = (BigInt(frame) * TICKS_PER_SEC * BigInt(den)) / BigInt(num);
-  return ppro.TickTime.createWithTicks(ticks.toString());
+const frameTicks = (frame, num, den) => (BigInt(frame) * TICKS_PER_SEC * BigInt(den)) / BigInt(num);
+const tickTime = (ticks) => ppro.TickTime.createWithTicks(ticks.toString());
+const tickTimeAt = (frame, num, den) => tickTime(frameTicks(frame, num, den));
+
+// TickTime -> BigInt ticks
+function ticksOf(t) {
+  if (t === null || t === undefined) return 0n;
+  if (t.ticks !== undefined) return BigInt(t.ticks);
+  return BigInt(Math.round(Number(t.ticksNumber)));
 }
 
 // Premiere returns parameter values wrapped (e.g. { value: 180 } or { value: { value: 180 } }).
@@ -408,8 +471,9 @@ async function isFlipRotation(param, inPoint) {
   return Math.abs(num(await param.getValueAtTime(inPoint)) - UPSIDE_DOWN) < 0.001;
 }
 
-// Motion > Rotation set by version 1.0: static 180, or keyframed with only 0/180 values.
-async function isLegacyMotionFlip(param, inPoint) {
+// Motion > Rotation holding a REDFlipper flip (the "Motion" option, or version 1.0):
+// static 180, or keyframed with only 0/180 values.
+async function isMotionFlip(param, inPoint) {
   if (!param) return false;
   if (!param.isTimeVarying()) return Math.abs(num(await param.getValueAtTime(inPoint)) - UPSIDE_DOWN) < 0.001;
   for (const time of param.getKeyframeListAsTickTimes()) {
@@ -419,12 +483,12 @@ async function isLegacyMotionFlip(param, inPoint) {
   return true;
 }
 
-// A clip's effects: REDFlipper's Transform (a Transform whose Rotation is 180° or keyframed),
-// the last Transform, and Motion's rotation.
-async function scanChain(item, inPoint) {
-  const tm = await getTransformMatchName();
-  const chain = await item.getComponentChain();
+// A component chain's REDFlipper Transform (a Transform whose Rotation is 180° or keyframed),
+// its last Transform, and Motion's rotation. Works for a timeline clip's chain and a source clip's.
+async function scanChain(chain, inPoint) {
   const out = { chain, ours: null, lastTransform: null, motionRotation: null };
+  if (!chain) return out;
+  const tm = await getTransformMatchName();
   const n = chain.getComponentCount();
   for (let i = 0; i < n; i++) {
     const comp = chain.getComponentAtIndex(i);
@@ -439,32 +503,31 @@ async function scanChain(item, inPoint) {
   return out;
 }
 
-// Run one undoable step for all entries; if the batch fails (e.g. a locked
-// track), retry entry by entry so one bad clip doesn't block the rest.
-function runPhase(project, label, entries, makeActions) {
-  if (!entries.length) return [];
-  const failed = [];
+// The source (master) clip's effects, which every instance of the clip in the project shows.
+async function sourceChain(cpi) {
+  try { return (await cpi.getComponentChain(ppro.Constants.MediaType.VIDEO)) || null; }
+  catch (e) { return null; }
+}
+
+// One undoable step. Returns false if Premiere refused it.
+function transact(project, label, makeActions) {
   let ok = false;
   try {
     project.lockedAccess(() => {
       ok = project.executeTransaction((ca) => {
-        for (const e of entries) for (const a of makeActions(e)) ca.addAction(a);
+        for (const a of makeActions()) ca.addAction(a);
       }, `REDFlipper: ${label}`);
     });
   } catch (err) { ok = false; }
-  if (ok) return failed;
-  for (const e of entries) {
-    let one = false;
-    try {
-      project.lockedAccess(() => {
-        one = project.executeTransaction((ca) => {
-          for (const a of makeActions(e)) ca.addAction(a);
-        }, `REDFlipper: ${label}`);
-      });
-    } catch (err) { one = false; }
-    if (!one) failed.push(e);
-  }
-  return failed;
+  return ok;
+}
+
+// Run one undoable step for all entries; if the batch fails (e.g. a locked
+// track), retry entry by entry so one bad clip doesn't block the rest.
+function runPhase(project, label, entries, makeActions) {
+  if (!entries.length) return [];
+  if (transact(project, label, () => entries.flatMap((e) => makeActions(e)))) return [];
+  return entries.filter((e) => !transact(project, label, () => makeActions(e)));
 }
 
 // ------------------------------------------------------------------ collect + analyse
@@ -491,14 +554,15 @@ async function collect() {
   const targets = [];
   let nonRed = 0;
   for (const item of items) {
-    let path = null;
+    let path = null, cpi = null;
     try {
-      const cpi = ppro.ClipProjectItem.cast(await item.getProjectItem());
+      cpi = ppro.ClipProjectItem.cast(await item.getProjectItem());
       if (cpi) path = await cpi.getMediaFilePath();
     } catch (e) { /* adjustment layers, titles, nests */ }
     if (!path || !/\.r3d$/i.test(path)) { nonRed++; continue; }
     const inPoint = await item.getInPoint();
-    targets.push({ item, path, name: await item.getName(), inPoint, scan: await scanChain(item, inPoint) });
+    targets.push({ item, cpi, path, name: await item.getName(), inPoint,
+                   scan: await scanChain(await item.getComponentChain(), inPoint) });
   }
   log(`${items.length} video clip(s) in scope: ${targets.length} RED, ${nonRed} other.`, "dim");
   let seqName = "the sequence";
@@ -507,19 +571,23 @@ async function collect() {
 }
 
 // Analyse every distinct source clip once (several timeline clips can share one source).
-async function analyseTargets(targets) {
+async function analyseTargets(targets, forceWalk) {
   const paths = [...new Set(targets.map((t) => t.path))];
+  const method = forceWalk ? FBF : FAST;
   const t0 = Date.now();
   const results = new Map();
   let failed = 0;
   for (let i = 0; i < paths.length; i++) {
     if (stopRequested) throw new Error("Stopped. Nothing was changed.");
     const p = paths[i];
-    const shortName = p.split(/[\\/]/).pop().replace(/_\d{3}\.r3d$/i, "");
-    status(`Reading motion data ${i + 1} / ${paths.length}: ${shortName}${analysisCache.has(p) ? " (already read)" : ""}`);
-    progress(analysisCache.has(p) ? 1 : 0);
-    try { results.set(p, await analyse(p, progress)); }
-    catch (e) {
+    const name = targets.find((t) => t.path === p).name;
+    const cached = analysisCache.has((forceWalk ? "fbf|" : "fast|") + p);
+    log(`Analyzing ${name} (${method})${cached ? ", already read this session" : ""}`);
+    status(`Reading motion data ${i + 1} / ${paths.length}: ${name}`);
+    progress(cached ? 1 : 0);
+    try {
+      results.set(p, await analyse(p, progress, forceWalk, () => log(`${FAST} failed, reverting to ${FBF} (Slow)`, "warn")));
+    } catch (e) {
       if (stopRequested) throw new Error("Stopped. Nothing was changed.");
       failed++;
       results.set(p, { plan: { kind: "error", error: e && e.message ? e.message : String(e) } });   // not cached: retried next run
@@ -527,10 +595,8 @@ async function analyseTargets(targets) {
   }
   progress(null);
   for (const t of targets) t.result = results.get(t.path);
-  const walked = [...results.values()].reduce((a, r) => a + (r.walked || 0), 0);
   log(`Read motion data for ${paths.length} source clip(s) in ${((Date.now() - t0) / 1000).toFixed(1)} s` +
-      (failed ? `, ${failed} couldn't be read` : "") +
-      (walked ? ` (${walked} file chunk(s) had no index and were scanned frame by frame, which is slower)` : "") + ".", "dim");
+      (failed ? `, ${failed} couldn't be read` : "") + ".", "dim");
   const reported = new Set();
   for (const t of targets) {
     const k = t.result.plan.kind;
@@ -541,69 +607,226 @@ async function analyseTargets(targets) {
   }
 }
 
+// ------------------------------------------------------------------ cuts at flip points
+
+// Premiere's API has no razor, so a cut is made the way an insert edit splits a clip: insert a
+// copy of the clip at the flip point (the insert cuts the clip there), then ripple-delete the
+// copy. Both halves keep every effect and keyframe of the original. Two undo steps per cut.
+
+async function seqTiming(seq) {
+  let perFrame = 0n, zero = 0n;
+  try { perFrame = BigInt(String(await seq.getTimebase()).trim()); } catch (e) { /* default below */ }
+  try { zero = ticksOf(await seq.getZeroPoint()); } catch (e) { /* starts at 0 */ }
+  if (perFrame <= 0n) perFrame = 10594584000n;   // 23.976
+  const nominal = Math.round(Number(TICKS_PER_SEC) / Number(perFrame));
+  return { perFrame, toTc: (ticks) => tcNominal(Number((ticks + zero) / perFrame), nominal) };
+}
+
+async function trackClips(seq, index) {
+  const track = await seq.getVideoTrack(index);
+  const out = [];
+  for (const item of await track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false)) {
+    out.push({ item, start: ticksOf(await item.getStartTime()), end: ticksOf(await item.getEndTime()),
+               inP: ticksOf(await item.getInPoint()) });
+  }
+  return out;
+}
+
+function emptySelection() {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("couldn't create a selection")), 5000);
+    try {
+      const ok = ppro.TrackItemSelection.createEmptySelection((s) => { clearTimeout(timer); resolve(s); });
+      if (ok === false) { clearTimeout(timer); reject(new Error("couldn't create a selection")); }
+    } catch (e) { clearTimeout(timer); reject(e); }
+  });
+}
+
+// Cuts the clip covering `at` on a video track. Returns true, or the reason it didn't work.
+async function cutAt(c, editor, trackIndex, at, tol) {
+  const near = (a, b) => (a > b ? a - b : b - a) <= tol;
+  const before = await trackClips(c.seq, trackIndex);
+  const a = before.find((x) => x.start + tol < at && at + tol < x.end);
+  if (!a) return "no clip covers that point";
+  const next = before.filter((x) => x.start + tol >= a.end).sort((x, y) => (x.start < y.start ? -1 : 1))[0];
+
+  // 1. insert a copy of the clip at the flip point
+  if (!transact(c.project, "cut at flip point", () =>
+    [editor.createCloneTrackItemAction(a.item, tickTime(at - a.start), 0, 0, true, true)])) {
+    return "Premiere refused the edit (locked track?)";
+  }
+  // 2. ripple-delete the copy (it starts at the cut with the original's in point), and its audio
+  const copy = (await trackClips(c.seq, trackIndex)).find((x) => near(x.start, at) && near(x.inP, a.inP));
+  if (!copy) return "the inserted copy wasn't found, please check the timeline (Ctrl+Z undoes it)";
+  const sel = await emptySelection();
+  sel.addItem(copy.item, false);
+  try {
+    const n = await c.seq.getAudioTrackCount();
+    for (let i = 0; i < n; i++) {
+      const track = await c.seq.getAudioTrack(i);
+      for (const ai of await track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false)) {
+        if (near(ticksOf(await ai.getStartTime()), at) && near(ticksOf(await ai.getEndTime()), copy.end)) sel.addItem(ai, false);
+      }
+    }
+  } catch (e) { /* no audio */ }
+  if (!transact(c.project, "cut at flip point", () =>
+    [editor.createRemoveItemsAction(sel, true, ppro.Constants.MediaType.ANY, false)])) {
+    return "couldn't remove the inserted copy, please check the timeline (Ctrl+Z undoes it)";
+  }
+  // 3. check: the clip ends at the cut, the rest starts there, and whatever followed is back in place
+  const after = await trackClips(c.seq, trackIndex);
+  const left = after.some((x) => near(x.start, a.start) && near(x.end, at));
+  const right = after.some((x) => near(x.start, at) && near(x.end, a.end) && near(x.inP, a.inP + (at - a.start)));
+  const nextOk = !next || after.some((x) => near(x.start, next.start) && near(x.inP, next.inP));
+  if (!(left && right && nextOk)) return "the timeline didn't come out as expected, please check it (Ctrl+Z undoes it)";
+  return true;
+}
+
+async function addCuts(c, clips) {
+  if (!clips.length) return 0;
+  const editor = ppro.SequenceEditor.getEditor(c.seq);
+  const { perFrame, toTc } = await seqTiming(c.seq);
+  const cuts = [];
+  for (const t of clips) {
+    let speed = 1, reversed = false;
+    try { speed = num(await t.item.getSpeed()); } catch (e) { /* assume normal speed */ }
+    try { reversed = !!(await t.item.isSpeedReversed()); } catch (e) { /* assume forward */ }
+    if (!(Math.abs(speed - 1) < 0.001) || reversed) {
+      log(`${t.name}: clip speed is changed, so no cut was added (the keyframes still flip it).`, "warn");
+      continue;
+    }
+    const track = await t.item.getTrackIndex();
+    const start = ticksOf(await t.item.getStartTime()), inP = ticksOf(t.inPoint), outP = ticksOf(await t.item.getOutPoint());
+    for (const k of t.plan.keys.slice(1)) {
+      const src = frameTicks(k.frame, t.result.fpsNum, t.result.fpsDen);
+      if (src <= inP || src >= outP) continue;   // flip falls outside the part of the clip that's used
+      const at = ((start + (src - inP) + perFrame / 2n) / perFrame) * perFrame;   // on a sequence frame
+      cuts.push({ t, track, at });
+    }
+  }
+  // latest first on each track, so an earlier cut never moves a later one
+  cuts.sort((x, y) => (x.track - y.track) || (x.at > y.at ? -1 : x.at < y.at ? 1 : 0));
+  for (let i = 0; i < cuts.length; i++) {
+    status(`Adding cuts ${i + 1} / ${cuts.length}…`);
+    try { cuts[i].r = await cutAt(c, editor, cuts[i].track, cuts[i].at, perFrame / 2n); }
+    catch (e) { cuts[i].r = e && e.message ? e.message : String(e); }
+  }
+  // report in timeline order
+  cuts.sort((x, y) => (x.at < y.at ? -1 : x.at > y.at ? 1 : x.track - y.track));
+  for (const { t, at, r } of cuts) {
+    if (r === true) log(`Added cut point at ${toTc(at)}. (${t.name})`);
+    else log(`${t.name}: couldn't add a cut at ${toTc(at)}: ${r}.`, "warn");
+  }
+  return cuts.filter((x) => x.r === true).length;
+}
+
 // ------------------------------------------------------------------ actions
 
 async function analyseAndFlip() {
-  clearLog();
+  startRun("Analyze & Flip");
+  const mode = applyMode(), forceWalk = opt("optForceFbf"), withCuts = opt("optCuts") && mode !== "source";
+  if (mode === "motion") log("Option: Apply Rotation to Clip “Motion” Effect.", "dim");
+  if (mode === "source") log("Option: Apply Rotation to Source Clip (all instances in the project).", "dim");
+  if (withCuts) log("Option: Add Cut at each Flip Point.", "dim");
   const c = await collect();
-  if (!c.targets.length) return log("No RED clips in scope.", "ok");
-  await analyseTargets(c.targets);
+  if (!c.targets.length) return log("Done: 0 clip(s) updated. No RED clips in scope.", "ok");
+  await analyseTargets(c.targets, forceWalk);
   status("Applying rotation…");
 
   const project = c.project;
   const HOLD = ppro.Constants.InterpolationMode.HOLD;
   const tm = await getTransformMatchName();
 
-  const flips = [], strip = [];
+  // one entry per source clip, holding its timeline clips in scope and its own (Source) effects
+  const sources = new Map();
   for (const t of c.targets) {
     t.plan = t.result.plan;
-    if (t.plan.kind === "upright") { if (t.scan.ours) strip.push(t); }
-    else if (t.plan.kind === "inverted" || t.plan.kind === "mixed") flips.push(t);
+    if (!sources.has(t.path)) {
+      sources.set(t.path, { name: t.name, cpi: t.cpi, inPoint: t.inPoint, result: t.result, plan: t.plan, targets: [],
+                            scan: await scanChain(await sourceChain(t.cpi), t.inPoint) });
+    }
+    sources.get(t.path).targets.push(t);
   }
-  if (!flips.length && !strip.length) return log("All RED clips in scope are upright. Nothing to change.", "ok");
-  const nInv = flips.filter((t) => t.plan.kind === "inverted").length;
-  log(`Applying: ${nInv} whole-clip flip(s), ${flips.length - nInv} mid-take flip clip(s)` +
-      (strip.length ? `, ${strip.length} upright clip(s) cleaned up` : "") + " …");
+
+  // Decide what gets the rotation ("units": timeline clips, or source clips in Source mode), and
+  // which REDFlipper rotation has to go first: anything on an upright clip, and anything that
+  // would flip a clip twice once the new rotation is in place.
+  const units = [], stripTransform = [], resetMotion = [], stripSource = [], cleaned = new Set();
+  for (const s of sources.values()) {
+    const kind = s.plan.kind;
+    if (kind === "upright" || (mode === "source" && (kind === "inverted" || kind === "mixed"))) {
+      if (kind === "upright" && s.scan.ours) { stripSource.push(s); s.targets.forEach((t) => cleaned.add(t)); }
+      for (const t of s.targets) {
+        if (t.scan.ours) { stripTransform.push(t); if (kind === "upright") cleaned.add(t); }
+        if (await isMotionFlip(t.scan.motionRotation, t.inPoint)) { resetMotion.push(t); if (kind === "upright") cleaned.add(t); }
+      }
+      if (kind !== "upright") units.push(s);
+    } else if (kind === "inverted" || kind === "mixed") {
+      if (s.scan.ours) {
+        log(`${s.name}: already flipped by a Source Transform (all instances). Skipped. ` +
+            "Use “Remove Rotation” first to flip its timeline clips instead.", "warn");
+        continue;
+      }
+      for (const t of s.targets) {
+        units.push(t);
+        if (mode === "transform" && await isMotionFlip(t.scan.motionRotation, t.inPoint)) resetMotion.push(t);
+        if (mode === "motion" && t.scan.ours) stripTransform.push(t);
+      }
+    }
+  }
+  if (!units.length && !cleaned.size) {
+    return log("Done: 0 clip(s) updated. All RED clips in scope are upright or skipped. Nothing to change.", "ok");
+  }
+  const nInv = units.filter((u) => u.plan.kind === "inverted").length;
+  const what = mode === "source" ? "source clip(s)" : "clip(s)";
+  log(`Applying: ${nInv} whole-clip flip(s), ${units.length - nInv} mid-take flip ${what}` +
+      (cleaned.size ? `, ${cleaned.size} upright clip(s) cleaned up` : "") + " …");
 
   const bad = new Set();
   const note = (list, what) => list.forEach((t) => { bad.add(t); log(`${t.name}: failed to ${what}`, "err"); });
 
-  // 1. add a Transform where the clip doesn't have ours yet; remove ours from upright clips
-  const needs = flips.filter((t) => !t.scan.ours);
-  for (const t of needs) t.newTransform = await ppro.VideoFilterFactory.createComponent(tm);
-  note(runPhase(project, "add Transform", needs,
-    (t) => [t.scan.chain.createAppendComponentAction(t.newTransform)]), "add Transform effect (locked track?)");
-  note(runPhase(project, "remove Transform from upright clips", strip,
-    (t) => [t.scan.chain.createRemoveComponentAction(t.scan.ours.component)]), "remove Transform");
+  // 1. clean up
+  note(runPhase(project, "remove Transform", stripTransform,
+    (t) => [t.scan.chain.createRemoveComponentAction(t.scan.ours.component)]), "remove the old REDFlipper Transform");
+  note(runPhase(project, "remove Source Transform", stripSource,
+    (s) => [s.scan.chain.createRemoveComponentAction(s.scan.ours.component)]), "remove the Source Transform");
+  const rm1 = runPhase(project, "reset Motion rotation", resetMotion, (t) => [t.scan.motionRotation.createSetTimeVaryingAction(false)]);
+  const rm2 = runPhase(project, "reset Motion rotation", resetMotion.filter((t) => !rm1.includes(t)),
+    (t) => [t.scan.motionRotation.createSetValueAction(t.scan.motionRotation.createKeyframe(0), true)]);
+  [...rm1, ...rm2].forEach((t) => log(`${t.name}: couldn't reset Motion rotation, please check it`, "warn"));
 
-  for (const t of flips) {
-    if (bad.has(t)) continue;
-    if (t.scan.ours) { t.rotation = t.scan.ours.rotation; continue; }
-    const rescan = await scanChain(t.item, t.inPoint);
-    if (rescan.lastTransform) t.rotation = rescan.lastTransform.rotation;
-    else note([t], "find the new Transform effect");
+  // 2. find the Rotation to set: Motion's, or REDFlipper's Transform (added where there isn't one)
+  if (mode === "motion") {
+    for (const u of units) {
+      if (u.scan.motionRotation) u.rotation = u.scan.motionRotation;
+      else note([u], "find the Motion effect's Rotation");
+    }
+  } else {
+    const needs = units.filter((u) => !u.scan.ours);
+    for (const u of needs) u.newTransform = await ppro.VideoFilterFactory.createComponent(tm);
+    note(runPhase(project, mode === "source" ? "add Source Transform" : "add Transform", needs,
+      (u) => [u.scan.chain.createAppendComponentAction(u.newTransform)]),
+      mode === "source" ? "add the Source Transform effect" : "add Transform effect (locked track?)");
+    for (const u of units) {
+      if (bad.has(u)) continue;
+      if (u.scan.ours) { u.rotation = u.scan.ours.rotation; continue; }
+      const chain = mode === "source" ? await sourceChain(u.cpi) : await u.item.getComponentChain();
+      const rescan = await scanChain(chain, u.inPoint);
+      if (rescan.lastTransform) u.rotation = rescan.lastTransform.rotation;
+      else note([u], "find the new Transform effect");
+    }
   }
-  const ready = flips.filter((t) => !bad.has(t));
-  const inverted = ready.filter((t) => t.plan.kind === "inverted");
-  const anim = ready.filter((t) => t.plan.kind === "mixed");
+  const ready = units.filter((u) => !bad.has(u));
+  const inverted = ready.filter((u) => u.plan.kind === "inverted");
+  const anim = ready.filter((u) => u.plan.kind === "mixed");
 
-  // 1b. clear Motion > Rotation flips left by version 1.0 (otherwise the clip would be flipped twice)
-  const legacy = [];
-  for (const t of ready) if (await isLegacyMotionFlip(t.scan.motionRotation, t.inPoint)) legacy.push(t);
-  if (legacy.length) {
-    const lf1 = runPhase(project, "reset Motion rotation", legacy, (t) => [t.scan.motionRotation.createSetTimeVaryingAction(false)]);
-    const lf2 = runPhase(project, "reset Motion rotation", legacy.filter((t) => !lf1.includes(t)),
-      (t) => [t.scan.motionRotation.createSetValueAction(t.scan.motionRotation.createKeyframe(0), true)]);
-    [...lf1, ...lf2].forEach((t) => log(`${t.name}: couldn't reset the old Motion rotation, please check it`, "warn"));
-  }
-
-  // 2. clear previous rotation animation; whole-clip flips get a static 180°
+  // 3. clear previous rotation animation; whole-clip flips get a static 180°
   note(runPhase(project, "clear rotation", ready,
     (t) => [t.rotation.createSetTimeVaryingAction(false)]), "clear old rotation");
   note(runPhase(project, "set rotation", inverted.filter((t) => !bad.has(t)),
     (t) => [t.rotation.createSetValueAction(t.rotation.createKeyframe(UPSIDE_DOWN), true)]), "set rotation");
 
-  // 3. mid-take flips get Hold keyframes
+  // 4. mid-take flips get Hold keyframes
   note(runPhase(project, "enable rotation keyframes", anim.filter((t) => !bad.has(t)),
     (t) => [t.rotation.createSetTimeVaryingAction(true)]), "enable keyframes");
 
@@ -620,7 +843,7 @@ async function analyseAndFlip() {
   note(runPhase(project, "add rotation keyframes", anim.filter((t) => !bad.has(t)),
     (t) => t.kfs.map((kf) => t.rotation.createAddKeyframeAction(kf))), "add keyframes");
 
-  // 4. Hold interpolation; remove any stray key Premiere added when keyframing was switched on.
+  // 5. Hold interpolation; remove any stray key Premiere added when keyframing was switched on.
   // A key is ours if it is the nearest to a planned time (within half a frame). Strays are only
   // removed when every planned key was found, so an unexpected time base never wipes our keys.
   note(runPhase(project, "hold keyframes", anim.filter((t) => !bad.has(t)), (t) => {
@@ -646,7 +869,7 @@ async function analyseAndFlip() {
     return acts;
   }), "set hold interpolation");
 
-  // 5. keyframe test on the first mid-take clip
+  // 6. keyframe test on the first mid-take clip
   const check = anim.find((t) => !bad.has(t) && t.plan.keys.length > 1);
   if (check) {
     const k0 = check.plan.keys[0], k1 = check.plan.keys[1];
@@ -665,31 +888,60 @@ async function analyseAndFlip() {
     }
   }
 
+  // 7. cuts at the flip points (after the rotation, so both halves carry it)
+  const cutCount = withCuts ? await addCuts(c, anim.filter((t) => !bad.has(t))) : 0;
+
+  // count timeline clips: a source clip stands for its timeline clips in scope
+  const updated = new Set(cleaned);
+  for (const u of ready) if (!bad.has(u)) (u.targets || [u]).forEach((t) => updated.add(t));
   const scope = selectedOnly() ? "Selected Clip(s)" : `All Clips in ${c.seqName}`;
-  log(`Applied to ${scope} as Transform Effects with keyframes` +
+  const how = { transform: "as Transform Effects with keyframes", motion: "in Clips' Motion Effects with keyframes",
+                source: "as Source Transform Effects with keyframes" }[mode];
+  log(`Done: ${updated.size} clip(s) updated. Applied to ${scope} ${how}` +
+      (cutCount ? `, with ${cutCount} cut(s) at flip points` : "") +
       (bad.size ? ` (${bad.size} clip(s) failed, see above)` : "") +
       `. To Undo, use “Remove Rotation”.`, bad.size ? "warn" : "ok");
 }
 
 async function removeRotation() {
-  clearLog();
+  startRun("Remove Rotation");
   const c = await collect();
+  if (!c.targets.length) return log("Done: 0 clip(s) updated. No RED clips in scope.", "ok");
 
+  // REDFlipper's Transform on timeline clips
   const withTransform = c.targets.filter((t) => t.scan.ours);
   const f1 = runPhase(c.project, "remove Transform", withTransform,
     (t) => [t.scan.chain.createRemoveComponentAction(t.scan.ours.component)]);
 
-  // Motion > Rotation left at 180° / keyframed by version 1.0 of this panel
-  const legacy = [];
-  for (const t of c.targets) if (await isLegacyMotionFlip(t.scan.motionRotation, t.inPoint)) legacy.push(t);
-  const f2 = runPhase(c.project, "reset Motion rotation", legacy, (t) => [t.scan.motionRotation.createSetTimeVaryingAction(false)]);
-  const f3 = runPhase(c.project, "reset Motion rotation", legacy.filter((t) => !f2.includes(t)),
+  // Motion > Rotation flips (the Motion option, or version 1.0 of this panel)
+  const motion = [];
+  for (const t of c.targets) if (await isMotionFlip(t.scan.motionRotation, t.inPoint)) motion.push(t);
+  const f2 = runPhase(c.project, "reset Motion rotation", motion, (t) => [t.scan.motionRotation.createSetTimeVaryingAction(false)]);
+  const f3 = runPhase(c.project, "reset Motion rotation", motion.filter((t) => !f2.includes(t)),
     (t) => [t.scan.motionRotation.createSetValueAction(t.scan.motionRotation.createKeyframe(0), true)]);
 
-  [...f1, ...f2, ...f3].forEach((t) => log(`${t.name}: failed (locked track?)`, "err"));
-  if (!withTransform.length && !legacy.length) return log("No REDFlipper rotation found on RED clips in scope.", "ok");
-  log(`Removed the REDFlipper Transform from ${withTransform.length - f1.length} clip(s)` +
-      (legacy.length ? `; reset Motion rotation (from the earlier version) on ${legacy.length - f2.length - f3.length}` : "") + ".", "ok");
+  // Source Transforms: removing one affects every instance of that clip in the project
+  const sources = new Map();
+  for (const t of c.targets) {
+    if (sources.has(t.path)) { sources.get(t.path).targets.push(t); continue; }
+    sources.set(t.path, { name: t.name, targets: [t], scan: await scanChain(await sourceChain(t.cpi), t.inPoint) });
+  }
+  const withSource = [...sources.values()].filter((s) => s.scan.ours);
+  const f4 = runPhase(c.project, "remove Source Transform", withSource,
+    (s) => [s.scan.chain.createRemoveComponentAction(s.scan.ours.component)]);
+
+  [...f1, ...f2, ...f3, ...f4].forEach((t) => log(`${t.name}: failed (locked track?)`, "err"));
+  const updated = new Set([...withTransform.filter((t) => !f1.includes(t)), ...motion.filter((t) => !f2.includes(t) && !f3.includes(t))]);
+  withSource.filter((s) => !f4.includes(s)).forEach((s) => s.targets.forEach((t) => updated.add(t)));
+  if (!withTransform.length && !motion.length && !withSource.length) {
+    return log("Done: 0 clip(s) updated. No REDFlipper rotation found on RED clips in scope.", "ok");
+  }
+  const parts = [];
+  if (withTransform.length) parts.push(`removed the REDFlipper Transform from ${withTransform.length - f1.length} clip(s)`);
+  if (motion.length) parts.push(`reset Motion rotation on ${motion.length - f2.length - f3.length} clip(s)`);
+  if (withSource.length) parts.push(`removed the Source Transform from ${withSource.length - f4.length} source clip(s) (all instances)`);
+  log(`Done: ${updated.size} clip(s) updated. ${parts.join("; ").replace(/^./, (x) => x.toUpperCase())}.`, "ok");
+  if (opt("optCuts")) log("Cuts added at flip points stay in place: use Ctrl+Z, or right-click a cut > Join Through Edits.", "dim");
 }
 
 // ------------------------------------------------------------------ wire up
@@ -701,10 +953,12 @@ async function removeRotation() {
   } catch (e) { /* version label is optional */ }
 })();
 
+loadOptions();
 $("flip").addEventListener("click", () => guarded(analyseAndFlip));
 $("remove").addEventListener("click", () => guarded(removeRotation));
 $("stop").addEventListener("click", () => { stopRequested = true; status("Stopping…"); });
 $("scopeSwitch").addEventListener("click", () => { if (!busy) setSelectedOnly(!selectedOnly()); });
+for (const id of OPTIONS) $(id).addEventListener("click", () => { if (!busy) setOpt(id, !opt(id)); });
 $("advancedToggle").addEventListener("click", () => {
   const open = $("advanced").classList.contains("hidden");
   if (open) $("advanced").classList.remove("hidden"); else $("advanced").classList.add("hidden");
