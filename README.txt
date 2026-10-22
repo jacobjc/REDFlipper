@@ -15,7 +15,10 @@ USE
   what the current Advanced options apply (the bottom of the Advanced section explains it):
   the Transform by default, Motion > Rotation with the Motion option, the Source Transform
   with the Source option.
-- Stop: cancels a long analysis before anything is changed.
+- Stop: works at any point. Before the first change to your clips (reading motion data,
+  the backup) nothing is changed. While applying, the clips already finished keep their
+  rotation and the rest get none (nothing is left half-keyframed); run again to finish
+  them, or use Undo. While adding cuts, the remaining cuts are skipped.
 - The log keeps every line from earlier runs; scroll up to read them.
   "Fast Analysis" (blue) reads only the motion blocks listed in each R3D chunk's index.
   If a chunk has no usable index it falls back to "Frame-by-Frame Analysis" (yellow),

@@ -40,6 +40,7 @@ const FUSE_HALF_US = 1000000;    // level from gravity on average over ± 1 s; t
 const TILT_MIN_YZ = 0.1;         // tilt correction of the gyro until the lens is within ~6° of vertical
 const SHAKEN_G = 0.08;           // total acceleration this far from 1 g: gravity's direction isn't trusted
 const FUSE_OUTLIER_DEG = 2;      // gravity readings this far from the gyro's track are left out
+const KEY_BATCH = 300;           // keyframes per Premiere step while applying (Stop is checked in between)
 
 let busy = false;
 let stopRequested = false;
@@ -252,6 +253,11 @@ function progress(frac) {
   $("progressBar").style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`;
 }
 
+// Stop is checked between steps everywhere; before the first edit nothing has changed yet.
+function checkStop(msg = "Stopped. Nothing was changed.") {
+  if (stopRequested) throw new Error(msg);
+}
+
 async function guarded(fn) {
   if (busy) return;
   busy = true;
@@ -392,6 +398,7 @@ async function readChunkIndexed(fd, size, bins) {
   }
   const blocks = [];
   for (const [pos, bsize] of entries) {
+    if (stopRequested) throw new Error("stopped");
     if (bsize <= 4096 || pos + bsize > size) return null;
     const b = await readAt(fd, pos, bsize);
     if (b.length < bsize || b.view.getUint32(4) !== RDX2) return null;   // index doesn't match: don't trust it
@@ -825,6 +832,7 @@ async function isMotionFlip(param, inPoint, stabilized) {
   if (stabilized && param.isTimeVarying()) return true;
   if (!param.isTimeVarying()) return Math.abs(num(await param.getValueAtTime(inPoint)) - UPSIDE_DOWN) < 0.001;
   for (const time of param.getKeyframeListAsTickTimes()) {
+    checkStop();
     const v = num(await param.getValueAtTime(time));
     if (!(Math.abs(v) < 0.001 || Math.abs(v - UPSIDE_DOWN) < 0.001)) return false;
   }
@@ -987,6 +995,7 @@ async function collect() {
   const targets = [];
   let nonRed = 0;
   for (const item of items) {
+    checkStop();
     let path = null, cpi = null;
     try {
       cpi = ppro.ClipProjectItem.cast(await item.getProjectItem());
@@ -1011,7 +1020,7 @@ async function analyseTargets(targets, forceWalk) {
   const results = new Map();
   let failed = 0;
   for (let i = 0; i < paths.length; i++) {
-    if (stopRequested) throw new Error("Stopped. Nothing was changed.");
+    checkStop();
     const p = paths[i];
     const name = targets.find((t) => t.path === p).name;
     const cached = analysisCache.has((forceWalk ? "fbf|" : "fast|") + p);
@@ -1021,7 +1030,7 @@ async function analyseTargets(targets, forceWalk) {
     try {
       results.set(p, await analyse(p, progress, forceWalk, () => log(`${FAST} failed, reverting to ${FBF} (Slow)`, "warn")));
     } catch (e) {
-      if (stopRequested) throw new Error("Stopped. Nothing was changed.");
+      checkStop();
       failed++;
       results.set(p, { plan: { kind: "error", error: e && e.message ? e.message : String(e) } });   // not cached: retried next run
     }
@@ -1160,6 +1169,11 @@ async function addCuts(c, clips) {
   // latest first on each track, so an earlier cut never moves a later one
   cuts.sort((x, y) => (x.track - y.track) || (x.at > y.at ? -1 : x.at < y.at ? 1 : 0));
   for (let i = 0; i < cuts.length; i++) {
+    if (stopRequested) {
+      for (const rest of cuts.slice(i)) rest.r = { msg: "skipped (stopped)" };
+      log("Stopped while adding cuts. The rotation is in place; the remaining cuts were skipped.", "warn");
+      break;
+    }
     status(`Adding cuts ${i + 1} / ${cuts.length}…`);
     try { cuts[i].r = await cutAt(c, editor, cuts[i].track, cuts[i].at, perFrame / 2n); }
     catch (e) { cuts[i].r = { stop: true, msg: e && e.message ? e.message : String(e) }; }
@@ -1200,6 +1214,7 @@ async function analyseAndFlip() {
   // one entry per source clip, holding its timeline clips in scope and its own (Source) effects
   const sources = new Map();
   for (const t of c.targets) {
+    checkStop();
     t.plan = stabilize ? stabPlan(t.result) : t.result.plan;
     if (!sources.has(t.path)) {
       if (stabilize) gyroNote(t.name, t.plan.gyro);
@@ -1214,6 +1229,7 @@ async function analyseAndFlip() {
   // would flip a clip twice once the new rotation is in place.
   const units = [], stripTransform = [], resetMotion = [], stripSource = [], cleaned = new Set();
   for (const s of sources.values()) {
+    checkStop();
     const kind = s.plan.kind;
     const rotates = kind === "inverted" || kind === "mixed" || kind === "stab";
     if (kind === "upright" || (mode === "source" && rotates)) {
@@ -1252,7 +1268,11 @@ async function analyseAndFlip() {
   // a quick analysis waits for the logo to finish turning before anything in Premiere changes
   const wait = logoAnimEnd - Date.now();
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  if (opt("optAutoSave")) await autoBackup(project);
+  checkStop();
+  if (opt("optAutoSave")) {
+    await autoBackup(project);
+    checkStop("Stopped. No clips were changed (the project backup was saved).");
+  }
   status("Applying rotation…");
 
   const bad = new Set();
@@ -1285,7 +1305,7 @@ async function analyseAndFlip() {
       if (u.scan.ours) { u.rotation = u.scan.ours.rotation; continue; }
       const chain = mode === "source" ? await sourceChain(u.cpi) : await u.item.getComponentChain();
       const rescan = await scanChain(chain, u.inPoint);
-      if (rescan.lastTransform) u.rotation = rescan.lastTransform.rotation;
+      if (rescan.lastTransform) { u.rotation = rescan.lastTransform.rotation; u.added = { chain, component: rescan.lastTransform.component }; }
       else note([u], "find the new Transform effect");
     }
   }
@@ -1299,28 +1319,13 @@ async function analyseAndFlip() {
   note(runPhase(project, "set rotation", inverted.filter((t) => !bad.has(t)),
     (t) => [t.rotation.createSetValueAction(t.rotation.createKeyframe(UPSIDE_DOWN), true)]), "set rotation");
 
-  // 4. mid-take flips get Hold keyframes
-  note(runPhase(project, "enable rotation keyframes", anim.filter((t) => !bad.has(t)),
-    (t) => [t.rotation.createSetTimeVaryingAction(true)]), "enable keyframes");
-
-  for (const t of anim) {
-    if (bad.has(t)) continue;
-    t.kfs = [];
-    for (const k of t.plan.keys) {
-      const kf = t.rotation.createKeyframe(k.value);
-      kf.position = tickTimeAt(k.frame, t.result.fpsNum, t.result.fpsDen);
-      try { await kf.setTemporalInterpolationMode(interpOf(t)); } catch (e) { /* set again below */ }
-      t.kfs.push(kf);
-    }
-  }
-  note(runPhase(project, "add rotation keyframes", anim.filter((t) => !bad.has(t)),
-    (t) => t.kfs.map((kf) => t.rotation.createAddKeyframeAction(kf))), "add keyframes");
-
-  // 5. Hold interpolation (linear when stabilizing); remove any stray key Premiere added when
-  // keyframing was switched on. A key is ours if it is the nearest to a planned time (within half a
-  // frame). Strays are only removed when every planned key was found, so an unexpected time base
-  // never wipes our keys. Both lists are walked in time order (stabilizing can mean thousands of keys).
-  note(runPhase(project, "set keyframe interpolation", anim.filter((t) => !bad.has(t)), (t) => {
+  // 4. mid-take flips get Hold keyframes (linear when stabilizing). Clip by clip, in batches of
+  // keyframes, pausing between batches so Stop is noticed within a moment even with thousands of keys.
+  // 5. Then Hold/linear interpolation, and any stray key Premiere added when keyframing was switched
+  // on is removed. A key is ours if it is the nearest to a planned time (within half a frame). Strays
+  // are only removed when every planned key was found, so an unexpected time base never wipes our
+  // keys. Both lists are walked in time order (stabilizing can mean thousands of keys).
+  const interpActions = (t) => {
     const halfFrame = Number(TICKS_PER_SEC) * t.result.fpsDen / t.result.fpsNum / 2;
     const planned = t.plan.keys.map((k) => tickTimeAt(k.frame, t.result.fpsNum, t.result.fpsDen).ticksNumber);
     const existing = t.rotation.getKeyframeListAsTickTimes()
@@ -1343,7 +1348,58 @@ async function analyseAndFlip() {
     }
     if (!allFound) log(`${t.name}: keyframes didn't land where expected, please check this clip`, "warn");
     return acts;
-  }), "set keyframe interpolation");
+  };
+  const pause = () => new Promise((r) => setTimeout(r, 0));
+  // runs actions in batches; false if Premiere refused one, "stop" if Stop was pressed in between
+  const inBatches = async (label, acts) => {
+    for (let i = 0; i < acts.length; i += KEY_BATCH) {
+      if (!transact(project, label, () => acts.slice(i, i + KEY_BATCH))) return false;
+      await pause();
+      if (stopRequested) return "stop";
+    }
+    return true;
+  };
+  const todo = anim.filter((t) => !bad.has(t)), finished = [];
+  let stopped = false;
+  for (const [n, t] of todo.entries()) {
+    if (stopRequested) { stopped = true; break; }
+    if (todo.length > 1) status(`Applying rotation… ${n + 1}/${todo.length} ${t.name}`);
+    if (!transact(project, "enable rotation keyframes", () => [t.rotation.createSetTimeVaryingAction(true)])) {
+      note([t], "enable keyframes"); continue;
+    }
+    const kfs = [];
+    for (const [i, k] of t.plan.keys.entries()) {
+      const kf = t.rotation.createKeyframe(k.value);
+      kf.position = tickTimeAt(k.frame, t.result.fpsNum, t.result.fpsDen);
+      try { await kf.setTemporalInterpolationMode(interpOf(t)); } catch (e) { /* set again below */ }
+      kfs.push(kf);
+      if (i % KEY_BATCH === KEY_BATCH - 1 && stopRequested) break;
+    }
+    if (stopRequested) { stopped = true; break; }
+    let r = await inBatches("add rotation keyframes", kfs.map((kf) => t.rotation.createAddKeyframeAction(kf)));
+    if (r === true) r = await inBatches("set keyframe interpolation", interpActions(t));
+    if (r === "stop") { stopped = true; break; }
+    if (!r) { note([t], "add keyframes"); continue; }
+    finished.push(t);
+  }
+
+  // Stopped: the clips not finished (including the one in progress) get no REDFlipper rotation at all,
+  // so nothing is left half-keyframed: a Transform added or reused for them is removed, a Motion
+  // rotation is reset to 0.
+  if (stopped) {
+    const left = todo.filter((t) => !finished.includes(t) && !bad.has(t));
+    const comp = (t) => (t.added || (t.scan && t.scan.ours) || null);
+    const failed = [
+      ...runPhase(project, "remove unfinished rotation", left.filter((t) => mode !== "motion" && comp(t)),
+        (t) => [(comp(t).chain || t.scan.chain).createRemoveComponentAction(comp(t).component)]),
+      ...runPhase(project, "reset unfinished rotation", left.filter((t) => mode === "motion" || !comp(t)),
+        (t) => [t.rotation.createSetTimeVaryingAction(false), t.rotation.createSetValueAction(t.rotation.createKeyframe(0), true)]),
+    ];
+    failed.forEach((t) => log(`${t.name}: couldn't remove its partly applied rotation, please check it (or use “Undo”)`, "warn"));
+    const word = stabilize ? "stabilized" : "flipped";
+    throw new Error(`Stopped. ${finished.length} of ${todo.length} clip(s) were ${word}; ` +
+      `the other ${left.length} were left without REDFlipper rotation. Run again to finish them, or use “Undo”.`);
+  }
 
   // 6. keyframe test on the first mid-take clip (stabilizing: values at a few keys, and halfway between two)
   const check = anim.find((t) => !bad.has(t) && t.plan.keys.length > 1);
@@ -1412,7 +1468,7 @@ async function removeRotation() {
   } else if (mode === "motion") {
     // Motion > Rotation holding a flip: static 180, or keyframed with only 0/180 values
     const motion = [];
-    for (const t of c.targets) if (await isMotionFlip(t.scan.motionRotation, t.inPoint, opt("optStabilize"))) motion.push(t);
+    for (const t of c.targets) { checkStop(); if (await isMotionFlip(t.scan.motionRotation, t.inPoint, opt("optStabilize"))) motion.push(t); }
     const f1 = runPhase(c.project, "reset Motion rotation", motion, (t) => [t.scan.motionRotation.createSetTimeVaryingAction(false)]);
     const f2 = runPhase(c.project, "reset Motion rotation", motion.filter((t) => !f1.includes(t)),
       (t) => [t.scan.motionRotation.createSetValueAction(t.scan.motionRotation.createKeyframe(0), true)]);
@@ -1424,6 +1480,7 @@ async function removeRotation() {
     // removing a Source Transform affects every instance of that clip in the project
     const sources = new Map();
     for (const t of c.targets) {
+      checkStop();
       if (sources.has(t.path)) { sources.get(t.path).targets.push(t); continue; }
       sources.set(t.path, { name: t.name, targets: [t], scan: await scanChain(await sourceChain(t.cpi), t.inPoint) });
     }

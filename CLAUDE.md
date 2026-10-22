@@ -166,6 +166,12 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   (axis direction of +Y unconfirmed; 2.5.4 tried -1, reverted in 2.5.5 at Jacob's request). Confirm on a tilted shot.
 - Undo in Motion mode with Stabilize on treats any keyframed Motion rotation as REDFlipper's (`isMotionFlip(..., true)`).
 - Keyframe interpolation/stray matching walks sorted lists (thousands of keys per clip).
+- Stop (2.6.2): `checkStop()` between steps before the first edit ("Stopped. Nothing was changed."; after the backup
+  says the backup was saved). Keyframes are applied clip by clip in batches of `KEY_BATCH` (300) per transaction,
+  with a `setTimeout(0)` pause after each so the Stop click is handled (one huge transaction blocked the UI). On Stop,
+  unfinished clips (incl. the one in progress) get no REDFlipper rotation: the Transform added/reused for them is
+  removed, Motion rotation reset to 0; then "Stopped. X of N clip(s) were stabilized/flipped…". Cuts: remaining cuts
+  skipped. Mock test 13 covers stop mid-clip and stop before any edit.
 
 ## Test clips (H:\01_VIDEO\2026_10_01) and expected results
 - `01_CARD\A001_1001MB.RDM\A001_A004_1001FB.RDC` — upright throughout (5660 frames, frame0 405245802).
