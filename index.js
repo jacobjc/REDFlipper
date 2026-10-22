@@ -27,6 +27,11 @@ const SMOOTH_BINS = 5;           // ± bins for a centred ~0.1 s moving average
 const LENS_VERTICAL_YZ = 0.35;   // lens within ~20° of straight up/down: keep previous state
 const MIN_HOLD_S = 2.0;          // ignore orientation changes shorter than this (playback seconds)
 
+// stabilize (level every frame) settings
+const STAB_SMOOTH_US = 50000;    // level angle = gravity averaged over ± 50 ms around each frame
+const STAB_TOLERANCE = 0.05;     // degrees: keys a straight line between their neighbours already gives are dropped
+const ROLL_SIGN = 1;             // direction of the correction; -1 if leveling turns the wrong way
+
 let busy = false;
 let stopRequested = false;
 let transformMatch = null;
@@ -95,7 +100,7 @@ function status(msg) { $("status").textContent = msg || ""; }
 
 // ------------------------------------------------------------------ advanced options
 
-const OPTIONS = ["optCuts", "optMotion", "optSource", "optForceFbf", "optAutoSave"];
+const OPTIONS = ["optCuts", "optMotion", "optSource", "optStabilize", "optForceFbf", "optAutoSave"];
 const DEFAULT_ON = new Set(["optAutoSave"]);   // Auto-Backup Project: checked until the editor unticks it
 const opt = (id) => $(id).classList.contains("on");
 
@@ -103,13 +108,27 @@ function setOpt(id, on) {
   if (on) $(id).classList.add("on"); else $(id).classList.remove("on");
   $(id).querySelector(".box").textContent = on ? "✓" : "";
   $(id).setAttribute("aria-checked", on ? "true" : "false");
-  // Apply to Source Clip overrides the Motion and cut options: show them as inactive
-  for (const dep of ["optMotion", "optCuts"]) {
-    if (opt("optSource")) $(dep).classList.add("overridden"); else $(dep).classList.remove("overridden");
-  }
   try { localStorage.setItem(`redflipper.${id}`, on ? "1" : "0"); } catch (e) { /* not remembered */ }
+  showOverrides();
   $("undoInfo").textContent = undoText();
   refreshBackupInfo();
+}
+
+// Options another option overrides are greyed out with a tag after their label:
+// Apply to Source Clip disables Motion and cuts; Stabilize disables cuts and turns on Frame-by-Frame.
+function showOverrides() {
+  const source = opt("optSource"), stab = opt("optStabilize");
+  const tags = {
+    optMotion: source ? ["(DISABLED)", "disabled"] : null,
+    optCuts: source || stab ? ["(DISABLED)", "disabled"] : null,
+    optForceFbf: stab ? ["(ENABLED)", "enabled"] : null,
+  };
+  for (const [id, tag] of Object.entries(tags)) {
+    if (tag) $(id).classList.add("overridden"); else $(id).classList.remove("overridden");
+    const el = $(id).querySelector(".tag");
+    el.textContent = tag ? tag[0] : "";
+    el.className = `tag ${tag ? tag[1] : ""}`;
+  }
 }
 
 function loadOptions() {
@@ -136,7 +155,10 @@ function undoText() {
     source: "removes the Source Transform from the source clips of the clips in scope, so every instance in the project " +
             "goes back to upright. Timeline effects are left alone.",
   }[mode];
-  if (opt("optCuts") && mode !== "source") {
+  if (opt("optStabilize")) {
+    text += mode === "motion" ? " Stabilizing keyframes on Motion > Rotation are cleared too." : " This also removes stabilization.";
+  }
+  if (opt("optCuts") && mode !== "source" && !opt("optStabilize")) {
     text += " Cuts stay: use Ctrl+Z, or right-click a cut > Join Through Edits.\nCtrl + Left-click drag to select multiple cut points.";
   }
   return "Undo: " + text;
@@ -463,9 +485,73 @@ async function analyse(path, onProgress, forceWalk, onFallback) {
     kind: "mixed",
     keys: segs.map(([state, start]) => ({ frame: start, value: state === "INV" ? UPSIDE_DOWN : 0, tc: tc(start, clip.fpsNum, clip.fpsDen) })),
   };
-  const result = { plan, fpsNum: clip.fpsNum, fpsDen: clip.fpsDen, walked: clip.walked };
+  const result = { plan, fpsNum: clip.fpsNum, fpsDen: clip.fpsDen, walked: clip.walked,
+                   clip: { rows: clip.rows, frames: clip.frames, frame0: clip.frame0, recordFps: clip.recordFps } };
   analysisCache.set(key, result);
   return result;
+}
+
+// Stabilize: the camera's roll for every frame, from gravity in the Y/Z plane (0° upright,
+// 180° upside-down), unwrapped so it never jumps by 360°. While the lens points nearly straight
+// up or down the roll is undefined and the last value is held. Keys a straight line between
+// their neighbours already reproduces (within STAB_TOLERANCE) are dropped, so Premiere's linear
+// interpolation gives every frame its own value without a key on each one.
+function rollKeys(clip) {
+  const { rows, frames: total, frame0, recordFps } = clip;
+  if (!rows || !rows.length || frame0 === null || !total) return null;
+  const usPerFrame = 1e6 / recordFps;
+  const n = rows.length, sy = [0], sz = [0];
+  for (const r of rows) { sy.push(sy[sy.length - 1] + r[2]); sz.push(sz[sz.length - 1] + r[3]); }
+  const vals = new Array(total).fill(null);
+  let lo = 0, hi = 0, prev = null;
+  for (let f = 0; f < total; f++) {
+    const t = frame0 + (f + 0.5) * usPerFrame;
+    while (lo < n && rows[lo][0] + BIN_US / 2 < t - STAB_SMOOTH_US) lo++;
+    if (hi < lo) hi = lo;
+    while (hi < n && rows[hi][0] + BIN_US / 2 <= t + STAB_SMOOTH_US) hi++;
+    if (hi > lo) {
+      const k = hi - lo, y = (sy[hi] - sy[lo]) / k, z = (sz[hi] - sz[lo]) / k;
+      if (Math.hypot(y, z) >= LENS_VERTICAL_YZ) {
+        let deg = ROLL_SIGN * Math.atan2(y, z) * 180 / Math.PI;
+        if (prev !== null) deg += 360 * Math.round((prev - deg) / 360);
+        prev = deg;
+      }
+    }
+    vals[f] = prev;
+  }
+  const first = vals.findIndex((v) => v !== null);
+  if (first < 0) return null;
+  for (let f = 0; f < first; f++) vals[f] = vals[first];
+
+  // keep only the keys a straight line can't stand in for
+  const keep = new Uint8Array(total);
+  keep[0] = keep[total - 1] = 1;
+  const stack = [[0, total - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop();
+    if (b - a < 2) continue;
+    let worst = -1, wd = STAB_TOLERANCE;
+    for (let i = a + 1; i < b; i++) {
+      const d = Math.abs(vals[i] - (vals[a] + (vals[b] - vals[a]) * (i - a) / (b - a)));
+      if (d > wd) { wd = d; worst = i; }
+    }
+    if (worst >= 0) { keep[worst] = 1; stack.push([a, worst], [worst, b]); }
+  }
+  const keys = [];
+  for (let f = 0; f < total; f++) if (keep[f]) keys.push({ frame: f, value: Math.round(vals[f] * 1000) / 1000 });
+  return keys;
+}
+
+// The stabilize plan for an analysed clip (computed once, kept with the cached analysis).
+function stabPlan(result) {
+  const k = result.plan.kind;
+  if (k === "error" || k === "nodata") return result.plan;
+  if (!result.stab) {
+    const keys = rollKeys(result.clip);
+    result.stab = keys ? { kind: "stab", keys: keys.map((x) => ({ ...x, tc: tc(x.frame, result.fpsNum, result.fpsDen) })) }
+                       : { kind: "nodata" };
+  }
+  return result.stab;
 }
 
 // ------------------------------------------------------------------ Premiere helpers
@@ -521,9 +607,11 @@ async function isFlipRotation(param, inPoint) {
 }
 
 // Motion > Rotation holding a REDFlipper flip (the "Motion" option, or version 1.0):
-// static 180, or keyframed with only 0/180 values.
-async function isMotionFlip(param, inPoint) {
+// static 180, or keyframed with only 0/180 values. With `stabilized`, any keyframed
+// rotation counts too (stabilizing keys take every value).
+async function isMotionFlip(param, inPoint, stabilized) {
   if (!param) return false;
+  if (stabilized && param.isTimeVarying()) return true;
   if (!param.isTimeVarying()) return Math.abs(num(await param.getValueAtTime(inPoint)) - UPSIDE_DOWN) < 0.001;
   for (const time of param.getKeyframeListAsTickTimes()) {
     const v = num(await param.getValueAtTime(time));
@@ -882,7 +970,9 @@ async function addCuts(c, clips) {
 
 async function analyseAndFlip() {
   startRun("Analyze & Flip");
-  const mode = applyMode(), forceWalk = opt("optForceFbf"), withCuts = opt("optCuts") && mode !== "source";
+  const mode = applyMode(), stabilize = opt("optStabilize");
+  const forceWalk = opt("optForceFbf") || stabilize, withCuts = opt("optCuts") && mode !== "source" && !stabilize;
+  if (stabilize) log("Option: Stabilize Clip using Gyro (levels every frame).", "dim");
   if (mode === "motion") log("Option: Apply Rotation to Clip “Motion” Effect.", "dim");
   if (mode === "source") log("Option: Apply Rotation to Source Clip (all instances in the project).", "dim");
   if (withCuts) log("Option: Add Cut at each Flip Point.", "dim");
@@ -893,12 +983,13 @@ async function analyseAndFlip() {
 
   const project = c.project;
   const HOLD = ppro.Constants.InterpolationMode.HOLD;
+  const interpOf = (t) => (t.plan.kind === "stab" ? ppro.Constants.InterpolationMode.LINEAR : HOLD);
   const tm = await getTransformMatchName();
 
   // one entry per source clip, holding its timeline clips in scope and its own (Source) effects
   const sources = new Map();
   for (const t of c.targets) {
-    t.plan = t.result.plan;
+    t.plan = stabilize ? stabPlan(t.result) : t.result.plan;
     if (!sources.has(t.path)) {
       sources.set(t.path, { name: t.name, cpi: t.cpi, inPoint: t.inPoint, result: t.result, plan: t.plan, targets: [],
                             scan: await scanChain(await sourceChain(t.cpi), t.inPoint) });
@@ -912,14 +1003,15 @@ async function analyseAndFlip() {
   const units = [], stripTransform = [], resetMotion = [], stripSource = [], cleaned = new Set();
   for (const s of sources.values()) {
     const kind = s.plan.kind;
-    if (kind === "upright" || (mode === "source" && (kind === "inverted" || kind === "mixed"))) {
+    const rotates = kind === "inverted" || kind === "mixed" || kind === "stab";
+    if (kind === "upright" || (mode === "source" && rotates)) {
       if (kind === "upright" && s.scan.ours) { stripSource.push(s); s.targets.forEach((t) => cleaned.add(t)); }
       for (const t of s.targets) {
         if (t.scan.ours) { stripTransform.push(t); if (kind === "upright") cleaned.add(t); }
         if (await isMotionFlip(t.scan.motionRotation, t.inPoint)) { resetMotion.push(t); if (kind === "upright") cleaned.add(t); }
       }
       if (kind !== "upright") units.push(s);
-    } else if (kind === "inverted" || kind === "mixed") {
+    } else if (rotates) {
       if (s.scan.ours) {
         log(`${s.name}: already flipped by a Source Transform (all instances). Skipped. ` +
             "Use “Undo” with “Apply Rotation to Source Clip” checked first to flip its timeline clips instead.", "warn");
@@ -937,8 +1029,13 @@ async function analyseAndFlip() {
   }
   const nInv = units.filter((u) => u.plan.kind === "inverted").length;
   const what = mode === "source" ? "source clip(s)" : "clip(s)";
-  log(`Applying: ${nInv} whole-clip flip(s), ${units.length - nInv} mid-take flip ${what}` +
-      (cleaned.size ? `, ${cleaned.size} upright clip(s) cleaned up` : "") + " …");
+  if (stabilize) {
+    const nKeys = units.reduce((a, u) => a + u.plan.keys.length, 0);
+    log(`Applying: stabilization to ${units.length} ${what} (${nKeys} rotation keyframes) …`);
+  } else {
+    log(`Applying: ${nInv} whole-clip flip(s), ${units.length - nInv} mid-take flip ${what}` +
+        (cleaned.size ? `, ${cleaned.size} upright clip(s) cleaned up` : "") + " …");
+  }
 
   if (opt("optAutoSave")) await autoBackup(project);
   status("Applying rotation…");
@@ -979,7 +1076,7 @@ async function analyseAndFlip() {
   }
   const ready = units.filter((u) => !bad.has(u));
   const inverted = ready.filter((u) => u.plan.kind === "inverted");
-  const anim = ready.filter((u) => u.plan.kind === "mixed");
+  const anim = ready.filter((u) => u.plan.kind === "mixed" || u.plan.kind === "stab");
 
   // 3. clear previous rotation animation; whole-clip flips get a static 180°
   note(runPhase(project, "clear rotation", ready,
@@ -997,42 +1094,57 @@ async function analyseAndFlip() {
     for (const k of t.plan.keys) {
       const kf = t.rotation.createKeyframe(k.value);
       kf.position = tickTimeAt(k.frame, t.result.fpsNum, t.result.fpsDen);
-      try { await kf.setTemporalInterpolationMode(HOLD); } catch (e) { /* set again below */ }
+      try { await kf.setTemporalInterpolationMode(interpOf(t)); } catch (e) { /* set again below */ }
       t.kfs.push(kf);
     }
   }
   note(runPhase(project, "add rotation keyframes", anim.filter((t) => !bad.has(t)),
     (t) => t.kfs.map((kf) => t.rotation.createAddKeyframeAction(kf))), "add keyframes");
 
-  // 5. Hold interpolation; remove any stray key Premiere added when keyframing was switched on.
-  // A key is ours if it is the nearest to a planned time (within half a frame). Strays are only
-  // removed when every planned key was found, so an unexpected time base never wipes our keys.
-  note(runPhase(project, "hold keyframes", anim.filter((t) => !bad.has(t)), (t) => {
+  // 5. Hold interpolation (linear when stabilizing); remove any stray key Premiere added when
+  // keyframing was switched on. A key is ours if it is the nearest to a planned time (within half a
+  // frame). Strays are only removed when every planned key was found, so an unexpected time base
+  // never wipes our keys. Both lists are walked in time order (stabilizing can mean thousands of keys).
+  note(runPhase(project, "set keyframe interpolation", anim.filter((t) => !bad.has(t)), (t) => {
     const halfFrame = Number(TICKS_PER_SEC) * t.result.fpsDen / t.result.fpsNum / 2;
-    const plannedTicks = t.plan.keys.map((k) => tickTimeAt(k.frame, t.result.fpsNum, t.result.fpsDen).ticksNumber);
-    const existing = t.rotation.getKeyframeListAsTickTimes();
-    const ours = new Set();
-    let allFound = true;
-    for (const p of plannedTicks) {
-      let best = -1, bestD = Infinity;
-      existing.forEach((time, i) => {
-        const d = Math.abs(time.ticksNumber - p);
-        if (d <= halfFrame && d < bestD && !ours.has(i)) { best = i; bestD = d; }
-      });
-      if (best < 0) allFound = false; else ours.add(best);
+    const planned = t.plan.keys.map((k) => tickTimeAt(k.frame, t.result.fpsNum, t.result.fpsDen).ticksNumber);
+    const existing = t.rotation.getKeyframeListAsTickTimes()
+      .map((time) => ({ time, at: Number(time.ticksNumber) })).sort((x, y) => x.at - y.at);
+    let allFound = true, j = 0;
+    for (const p of planned) {
+      while (j < existing.length && existing[j].at < p - halfFrame) j++;
+      // nearest of the candidates within half a frame
+      let best = -1;
+      for (let k = j; k < existing.length && existing[k].at <= p + halfFrame; k++) {
+        if (best < 0 || Math.abs(existing[k].at - p) < Math.abs(existing[best].at - p)) best = k;
+      }
+      if (best < 0) allFound = false;
+      else { existing[best].ours = true; j = best + 1; }
     }
-    const acts = [];
-    existing.forEach((time, i) => {
-      if (ours.has(i)) acts.push(t.rotation.createSetInterpolationAtKeyframeAction(time, HOLD, false));
-      else if (allFound) acts.push(t.rotation.createRemoveKeyframeAction(time, false));
-    });
+    const mode = interpOf(t), acts = [];
+    for (const e of existing) {
+      if (e.ours) acts.push(t.rotation.createSetInterpolationAtKeyframeAction(e.time, mode, false));
+      else if (allFound) acts.push(t.rotation.createRemoveKeyframeAction(e.time, false));
+    }
     if (!allFound) log(`${t.name}: keyframes didn't land where expected, please check this clip`, "warn");
     return acts;
-  }), "set hold interpolation");
+  }), "set keyframe interpolation");
 
-  // 6. keyframe test on the first mid-take clip
+  // 6. keyframe test on the first mid-take clip (stabilizing: values at a few keys, and halfway between two)
   const check = anim.find((t) => !bad.has(t) && t.plan.keys.length > 1);
-  if (check) {
+  if (check && check.plan.kind === "stab") {
+    const fr = [check.result.fpsNum, check.result.fpsDen], ks = check.plan.keys;
+    const probes = [0, Math.floor(ks.length / 3), Math.floor(2 * ks.length / 3), ks.length - 1].map((i) => ks[i]);
+    let worst = 0;
+    for (const k of probes) worst = Math.max(worst, Math.abs(num(await check.rotation.getValueAtTime(tickTimeAt(k.frame, ...fr))) - k.value));
+    const keys = check.rotation.getKeyframeListAsTickTimes().length;
+    if (worst < 0.01 && keys === ks.length) {
+      log(`✓ Keyframe test PASSED. (Tested on ${check.name}: ${keys} stabilizing keyframes in place.)`, "ok");
+    } else {
+      log(`⚠ Keyframe test FAILED. (Tested on ${check.name}: expected ${ks.length} keyframes, got ${keys}; ` +
+          `largest value error ${isNaN(worst) ? "unknown" : worst.toFixed(2) + "°"}.)`, "warn");
+    }
+  } else if (check) {
     const k0 = check.plan.keys[0], k1 = check.plan.keys[1];
     const fr = [check.result.fpsNum, check.result.fpsDen];
     const before = await check.rotation.getValueAtTime(tickTimeAt(Math.max(k0.frame, k1.frame - 1), ...fr));
@@ -1085,7 +1197,7 @@ async function removeRotation() {
   } else if (mode === "motion") {
     // Motion > Rotation holding a flip: static 180, or keyframed with only 0/180 values
     const motion = [];
-    for (const t of c.targets) if (await isMotionFlip(t.scan.motionRotation, t.inPoint)) motion.push(t);
+    for (const t of c.targets) if (await isMotionFlip(t.scan.motionRotation, t.inPoint, opt("optStabilize"))) motion.push(t);
     const f1 = runPhase(c.project, "reset Motion rotation", motion, (t) => [t.scan.motionRotation.createSetTimeVaryingAction(false)]);
     const f2 = runPhase(c.project, "reset Motion rotation", motion.filter((t) => !f1.includes(t)),
       (t) => [t.scan.motionRotation.createSetValueAction(t.scan.motionRotation.createKeyframe(0), true)]);
@@ -1112,7 +1224,7 @@ async function removeRotation() {
   const what = { transform: "REDFlipper Transform", motion: "REDFlipper Motion rotation", source: "Source Transform" }[mode];
   if (!found) log(`Done: 0 clip(s) updated. No ${what} found on RED clips in scope.`, "ok");
   else log(`Done: ${updated.size} clip(s) updated. ${summary}`, failed.length ? "warn" : "ok");
-  if (opt("optCuts") && mode !== "source") {
+  if (opt("optCuts") && mode !== "source" && !opt("optStabilize")) {
     log("Cuts added at flip points stay in place: use Ctrl+Z, or right-click a cut > Join Through Edits.", "dim");
     log("Ctrl + Left-click drag to select multiple cut points.", "dim");
   }

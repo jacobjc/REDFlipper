@@ -15,7 +15,9 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
 - `index.html` — panel UI: icon + title/version + "by Jacob J. Christiansen"; "Selected clips only" toggle
   switch (a styled div, `.on` class = selected only; off = whole sequence); Analyze & Flip, Undo (= Remove Rotation, renamed 2.4.7),
   Stop, Advanced, all in one row; Advanced reveals five option checkboxes (styled divs `.opt`, `.on` = checked, saved in
-  localStorage as `redflipper.<id>`; each label's warning is on its own line below it): in order `optCuts`, `optMotion`, `optSource`, `optForceFbf`, `optAutoSave` (Source greys out Motion and Cuts with a red "(IGNORED)"); status line, per-clip
+  localStorage as `redflipper.<id>`; each label's warning is on its own line below it): in order `optCuts`, `optMotion`, `optSource`, `optStabilize`, `optForceFbf`, `optAutoSave`; `showOverrides()` greys out
+  overridden ones and fills their `.tag` span: Source → Motion and Cuts red "(DISABLED)"; Stabilize → Cuts "(DISABLED)",
+  Force FBF green "(ENABLED)"; status line, per-clip
   progress bar, log (fills remaining height, scrolls, never cleared: each run appends under a dim header; a new run
   jumps the log and the panel to the bottom and the log follows new lines until the editor scrolls up).
   Colours: "Fast Analysis" blue (`.fast`), "Frame-by-Frame Analysis" yellow (`.fbf`; `log()` colours both
@@ -126,6 +128,17 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   for speed-changed clips. Premiere test of 2.4.6 (Jacob, 2026-10-22): the insert split the clip but the copy was NOT
   removed. 2.4.7 finds the copy by start time only, tries the remove as ANY+audio, VIDEO, ANY and checks the timeline
   after each, logs which failed (with Premiere's error), and stops further cuts after a failure.
+  (2.4.7 shipped without the (IGNORED) tags by mistake; fixed as (DISABLED) in 2.5.0.)
+
+## Stabilize (2.5.0, `optStabilize`)
+- `rollKeys(clip)`: per frame, roll = ROLL_SIGN · atan2(Y, Z) of gravity averaged over ±50 ms (prefix sums over the
+  10 ms bins), held while hypot(Y,Z) < 0.35, unwrapped (no 360° jumps). Keys simplified with Ramer–Douglas–Peucker
+  (0.05° tolerance), LINEAR interpolation. `stabPlan(result)` caches it on the analysis result (which keeps `clip`
+  rows). Plan kind "stab" flows through the same apply path as "mixed" (any mode), cuts off, FBF forced.
+- Accelerometer, not gyro: RED gyro values don't integrate to real angles (see above). ROLL_SIGN = 1 is a guess
+  (axis direction of +Y unconfirmed): if leveling turns the wrong way in Premiere, set it to -1.
+- Undo in Motion mode with Stabilize on treats any keyframed Motion rotation as REDFlipper's (`isMotionFlip(..., true)`).
+- Keyframe interpolation/stray matching walks sorted lists (thousands of keys per clip).
 
 ## Test clips (H:\01_VIDEO\2026_10_01) and expected results
 - `01_CARD\A001_1001MB.RDM\A001_A004_1001FB.RDC` — upright throughout (5660 frames, frame0 405245802).
