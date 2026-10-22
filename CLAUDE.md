@@ -9,7 +9,7 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
 ## Files
 - `manifest.json` — id `com.jacobchristiansen.redflip`, name `REDFlipper`, version (bump every release;
   the panel shows it next to the title), host `premierepro` min 25.6.0, `localFileSystem: fullAccess`
-  (needed: the plugin opens R3Ds itself).
+  (needed: the plugin opens R3Ds itself), `launchProcess` (open backup folders).
 - `index.html` — panel UI: icon + title/version + "by Jacob J. Christiansen"; "Selected clips only" toggle
   switch (a styled div, `.on` class = selected only; off = whole sequence); Analyze & Flip, Remove Rotation,
   Stop; Advanced button revealing four option checkboxes (styled divs `.opt`, `.on` = checked, saved in
@@ -112,6 +112,9 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   YYYY-MM-DD_HH-MM-SS.prproj`, then logs "Backup saved to <path>". Failures are logged and the run continues.
   `#backupInfo` under the undo text (`refreshBackupInfo()`: folder + newest backup time) refreshes on option change,
   Advanced open and after each run.
+- Clickable paths (2.4.5): `pathLink()` spans (`.link`) open a folder with `uxp.shell.openPath` (a backup file's link
+  opens its folder, not the .prproj). Needs manifest `requiredPermissions.launchProcess.extensions: [""]` (empty
+  extension = folders); UXP may show a consent prompt per folder. Used for "Backup saved to" and the backup folder.
 - Cuts (`optCuts`, not in Source mode): the UXP API has no razor (Adobe: not planned for 1.0). `cutAt` uses
   `SequenceEditor.createCloneTrackItemAction(item, offset, 0, 0, true, isInsert=true)` at the flip point (an insert
   splits the clip there), then finds the copy (starts at the cut with the original's in point) plus any audio at the

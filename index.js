@@ -40,9 +40,28 @@ const $ = (id) => document.getElementById(id);
 const FAST = "Fast Analysis", FBF = "Frame-by-Frame Analysis";
 const METHOD_RE = /(Fast Analysis|Frame-by-Frame Analysis)/;
 
+// A clickable path: opens the folder in Explorer / Finder (a file's own folder, so a backup
+// .prproj isn't opened in Premiere). Needs the launchProcess permission in manifest.json;
+// UXP may ask the editor to allow it the first time.
+function pathLink(path, folder) {
+  const a = document.createElement("span");
+  a.className = "link";
+  a.textContent = path;
+  a.addEventListener("click", () => openFolder(folder || path));
+  return a;
+}
+
+async function openFolder(dir) {
+  try {
+    const err = await require("uxp").shell.openPath(dir);
+    if (err) log(`Couldn't open ${dir}: ${err}`, "warn");
+  } catch (e) { log(`Couldn't open ${dir}: ${e && e.message ? e.message : e}`, "warn"); }
+}
+
 // Lines are never deleted: each run appends below the last one. The log keeps following new
-// lines unless the editor has scrolled up to read something.
-function log(msg, cls) {
+// lines unless the editor has scrolled up to read something. `link` = { path, folder } adds a
+// clickable path at the end of the line.
+function log(msg, cls, link) {
   const box = $("log");
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
   const d = document.createElement("div");
@@ -55,6 +74,7 @@ function log(msg, cls) {
       d.appendChild(s);
     } else d.appendChild(document.createTextNode(part));
   }
+  if (link) d.appendChild(pathLink(link.path, link.folder));
   if (cls) d.className = cls;
   box.appendChild(d);
   if (atBottom) box.scrollTop = box.scrollHeight;
@@ -602,7 +622,7 @@ async function autoBackup(project) {
   try {
     await makeDir(dir);
     await copyTo(p, dest);
-    log(`Backup saved to ${dest}`, "dim");
+    log("Backup saved to ", "dim", { path: dest, folder: dir });
   } catch (e) {
     log(`Project saved, but the backup copy failed (${e && e.message ? e.message : e}). Continuing.`, "warn");
   }
@@ -610,12 +630,12 @@ async function autoBackup(project) {
 
 // Backup paragraph under the undo text in Advanced: folder and the newest backup's time.
 async function refreshBackupInfo() {
-  let where = "(save the project first)", last = "none yet";
+  let where = "(save the project first)", last = "none yet", folder = null;
   try {
     const project = await ppro.Project.getActiveProject();
     if (project && project.path) {
       const { dir, prefix } = backupLocation(project.path);
-      where = dir;
+      folder = dir;
       let names = [];
       try { names = (await listDir(dir)).map((e) => (typeof e === "string" ? e : e.name)); } catch (e) { /* no folder yet */ }
       const newest = names.filter((n) => n.startsWith(prefix) && /\.prproj$/i.test(n)).sort().pop();
@@ -623,8 +643,16 @@ async function refreshBackupInfo() {
       if (m) last = `${m[1]} ${m[2]}:${m[3]}:${m[4]}`;
     } else if (!project) where = "(no project open)";
   } catch (e) { /* keep defaults */ }
-  $("backupInfo").textContent = "REDFlipper auto-backups your project every time “Analyze & Flip” is used (unless disabled).\n" +
-    `Backups are located at: ${where}\nLast backup: ${last}`;
+  const box = $("backupInfo");
+  box.textContent = "";
+  const line = (...parts) => {
+    const d = document.createElement("div");
+    for (const p of parts) d.appendChild(typeof p === "string" ? document.createTextNode(p) : p);
+    box.appendChild(d);
+  };
+  line("REDFlipper auto-backups your project every time “Analyze & Flip” is used (unless disabled).");
+  line("Backups are located at: ", folder ? pathLink(folder) : where);
+  line(`Last backup: ${last}`);
 }
 
 // ------------------------------------------------------------------ collect + analyse

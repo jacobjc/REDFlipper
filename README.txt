@@ -35,7 +35,8 @@ ADVANCED OPTIONS (remembered between sessions)
 - Auto-Backup Project (on by default): every time Analyze & Flip is used, saves the
   project (like Ctrl+S), then puts a timestamped copy (<project>-REDFlipper-<date>_<time>.prproj)
   in the "Adobe Premiere Pro Auto-Save" folder next to the project, before anything is
-  changed. The bottom of Advanced shows the folder and the last backup. (Premiere's own
+  changed. The bottom of Advanced shows the folder and the last backup. Click a backup
+  path (there or in the log) to open its folder; Premiere may ask to allow this once. (Premiere's own
   auto-save can't be triggered by a plugin.)
 - Analyze & Flip still clears REDFlipper rotation from the other places (Transform, Motion,
   Source) where it would flip a clip twice.
