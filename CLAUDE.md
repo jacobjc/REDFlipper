@@ -90,7 +90,8 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
 
 ## Orientation logic (index.js `classify`)
 - Axes: Z ≈ +1 g when upright, −1 g when upside-down; X = lens axis (+X = pointing down); Y = side.
-  Gyro values don't integrate to the real rotation in any standard unit — ignored.
+  Gyro values don't integrate to the real rotation in any standard unit — ignored here (flip detection);
+  Stabilize calibrates them per clip since 2.6.0.
 - Average motion data into 10 ms bins, centred ~0.1 s moving average.
 - State per bin: if hypot(Y, Z) < 0.35 (lens within ~20° of vertical, e.g. overheads) keep previous state;
   else UP if Z > 0, INV if Z < 0. Change point = where the camera passes sideways (mid-flip).
@@ -147,7 +148,15 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   within 0.05° of a straight line), LINEAR interpolation. `stabPlan(result)` caches it on the analysis result (which keeps `clip`
   rows). Plan kind "stab" flows through the same apply path as "mixed" (any mode), cuts off. Fast Analysis is fine
   (same motion samples as Frame-by-Frame); 2.5.0 forced FBF, dropped in 2.5.1 at Jacob's request.
-- Accelerometer, not gyro: RED gyro values don't integrate to real angles (see above). ROLL_SIGN = 1 is a guess
+- Gyro fusion (2.6.0): reader keeps gyro X/Y/Z per bin (rows = [t, ax, ay, az, gx, gy, gz]). The unit/axis are
+  undocumented, so `calibrateGyro` fits gravity's roll change over 0.5 s windows against ∫gyro for each axis
+  (least squares with offset; best |correlation| ≥ 0.8 and ≥ 0.5° std of turning). `fusedRoll`: gyro angle G +
+  gravity offset (gravity − G) averaged over ±1 s, leaving out bins where |accel| is > 0.08 g off 1 g (shoved) and,
+  on a second pass, readings > 2° off the first average. No gravity within ±1 s (overheads): follows the gyro.
+  A clip that can't calibrate uses the session's last calibration with ≥ 0.9 fit (`sessionGyroCal`), else gravity
+  only (2.5.x behaviour). `gyroNote` logs which per clip. Synthetic test (scratchpad gyrotest.js): ±0.5 g jolts
+  gave 27.7° max error gravity-only, 0.24° fused. Not yet checked against real RED gyro data.
+- ROLL_SIGN = 1 is a guess
   (axis direction of +Y unconfirmed; 2.5.4 tried -1, reverted in 2.5.5 at Jacob's request). Confirm on a tilted shot.
 - Undo in Motion mode with Stabilize on treats any keyframed Motion rotation as REDFlipper's (`isMotionFlip(..., true)`).
 - Keyframe interpolation/stray matching walks sorted lists (thousands of keys per clip).

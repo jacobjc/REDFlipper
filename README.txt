@@ -36,9 +36,11 @@ ADVANCED OPTIONS (remembered between sessions)
   the cut > Join Through Edits (Ctrl + Left-click drag to select multiple cut points).
   Greyed out (off) when Apply Rotation to Source Clip or Stabilize is on.
 - Lock to Horizon (Stabilize Rotation): the main button becomes "Analyze & Stabilize". Instead of only flipping, levels the horizon on every frame.
-  The camera's roll angle comes from gravity measured by its motion sensor (averaged over
-  0.1 s around each frame), so upside-down sections come out at 180 and small tilts are
-  corrected too. One linear keyframe on every frame. Goes to the Transform, Motion or
+  The camera's roll angle comes from its motion sensor: gravity (the accelerometer) says
+  where level is, and the gyro follows fast turns, so whip pans and jolts don't knock the
+  horizon off. Each clip calibrates its gyro against gravity first; the log says whether it
+  did. A clip that barely turns borrows the last good calibration, or uses gravity alone.
+  Upside-down sections come out at 180 and small tilts are corrected too. One linear keyframe on every frame. Goes to the Transform, Motion or
   Source Clip like a flip. Disables cuts. Rotating
   shows the frame's corners; scale up to hide them.
 - Auto-Backup Project (recommended, on by default): every time Analyze & Flip (or Analyze & Stabilize) is used, saves the
