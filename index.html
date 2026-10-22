@@ -28,13 +28,14 @@
     /* option checkbox: a box that fills blue with a tick when .on */
     .opt { display: flex; align-items: flex-start; cursor: pointer; margin: 5px 0; }
     .box { width: 12px; height: 12px; border: 1px solid #888; border-radius: 2px; margin: 1px 8px 0 0;
-           flex-shrink: 0; font-size: 10px; line-height: 12px; text-align: center; color: #fff; }
-    .opt.on .box { background: #2d8ceb; border-color: #2d8ceb; }
+           flex-shrink: 0; font-size: 10px; line-height: 12px; text-align: center; color: #fff; overflow: hidden; }
+    .box.checked { background: #2d8ceb; border-color: #2d8ceb; }
     .optText { flex: 1 1 auto; }
-    /* greyed out when another option overrides it; its tag keeps its colour */
-    .opt.overridden .box { opacity: 0.45; }
+    /* greyed out when another option overrides it: only colours change, so nothing moves */
+    .opt.overridden { cursor: default; }
+    .opt.overridden .box { border-color: #555; color: #888; }
+    .opt.overridden .box.checked { background: #555; border-color: #555; }
     .opt.overridden .optText, .opt.overridden .warning, .opt.overridden .fbf { color: #666; }
-    .tag { font-weight: bold; } .tag.disabled { color: #ff5050; } .tag.enabled { color: #5fd35f; }
     /* warnings sit on their own line under each option's label */
     .optText .warning { display: block; }
     #backupInfo { color: #999; margin-top: 10px; overflow-wrap: anywhere; word-break: break-all; }
@@ -76,9 +77,9 @@
   </div>
   <div id="advanced" class="hidden">
     <div class="opt" id="optCuts" role="checkbox" aria-checked="false"><div class="box"></div>
-      <div class="optText">Add Cut at each Flip Point <span class="tag"></span></div></div>
+      <div class="optText">Add Cut at each Flip Point</div></div>
     <div class="opt" id="optMotion" role="checkbox" aria-checked="false"><div class="box"></div>
-      <div class="optText">Apply Rotation to Clip “Motion” Effect <span class="tag"></span>
+      <div class="optText">Apply Rotation to Clip “Motion” Effect
         <span class="warning">(Warning: Will overwrite existing motion keyframes.)</span></div></div>
     <div class="opt" id="optSource" role="checkbox" aria-checked="false"><div class="box"></div>
       <div class="optText">Apply Rotation to Source Clip
@@ -86,7 +87,7 @@
     <div class="opt" id="optStabilize" role="checkbox" aria-checked="false"><div class="box"></div>
       <div class="optText">Stabilize Clip using Gyro</div></div>
     <div class="opt" id="optForceFbf" role="checkbox" aria-checked="false"><div class="box"></div>
-      <div class="optText">Force <span class="fbf">Frame-by-Frame Analysis</span> <span class="tag"></span>
+      <div class="optText">Force <span class="fbf">Frame-by-Frame Analysis</span>
         <span class="warning">(Warning: SLOW)</span></div></div>
     <div class="opt" id="optAutoSave" role="checkbox" aria-checked="false"><div class="box"></div>
       <div class="optText">Auto-Backup Project</div></div>

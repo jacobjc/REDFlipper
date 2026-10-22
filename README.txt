@@ -26,19 +26,19 @@ ADVANCED OPTIONS (remembered between sessions)
 - Apply Rotation to Clip "Motion" Effect: puts the rotation in Motion > Rotation instead
   of a Transform effect. Existing Motion rotation keyframes are replaced.
 - Apply Rotation to Source Clip: puts the Transform on the source (master) clip, so every
-  instance of that clip in the project is flipped. Overrides the Motion option (shown greyed out, (DISABLED)).
+  instance of that clip in the project is flipped. Overrides the Motion option (shown greyed out, off).
 - Add Cut at each Flip Point: cuts the timeline clip where the camera flips (not with the
   Source option). Premiere's plugin API has no razor, so the cut is made by inserting a
   copy of the clip at the flip point (which splits it) and ripple-deleting the copy; both
   halves keep all effects. Undo does not rejoin cuts: use Ctrl+Z, or right-click
   the cut > Join Through Edits (Ctrl + Left-click drag to select multiple cut points).
-  Greyed out and marked (DISABLED) when Apply Rotation to Source Clip or Stabilize is on.
+  Greyed out (off) when Apply Rotation to Source Clip or Stabilize is on.
 - Stabilize Clip using Gyro: instead of only flipping, levels the horizon on every frame.
   The camera's roll angle comes from gravity measured by its motion sensor (averaged over
   0.1 s around each frame), so upside-down sections come out at 180 and small tilts are
   corrected too. Keyframes are linear; a key is only kept where a straight line between
   its neighbours would be off by more than 0.05 degrees. Goes to the Transform, Motion or
-  Source Clip like a flip. Forces Frame-by-Frame Analysis and disables cuts. Rotating
+  Source Clip like a flip. Disables cuts. Rotating
   shows the frame's corners; scale up to hide them.
 - Auto-Backup Project (on by default): every time Analyze & Flip is used, saves the
   project (like Ctrl+S), then puts a timestamped copy (<project>-REDFlipper-<date>_<time>.prproj)

@@ -106,28 +106,30 @@ const opt = (id) => $(id).classList.contains("on");
 
 function setOpt(id, on) {
   if (on) $(id).classList.add("on"); else $(id).classList.remove("on");
-  $(id).querySelector(".box").textContent = on ? "✓" : "";
-  $(id).setAttribute("aria-checked", on ? "true" : "false");
   try { localStorage.setItem(`redflipper.${id}`, on ? "1" : "0"); } catch (e) { /* not remembered */ }
   showOverrides();
   $("undoInfo").textContent = undoText();
   refreshBackupInfo();
 }
 
-// Options another option overrides are greyed out with a tag after their label:
-// Apply to Source Clip disables Motion and cuts; Stabilize disables cuts and turns on Frame-by-Frame.
+// Options another option overrides are greyed out and show the state they're forced to (a grey
+// tick when forced on, no tick when forced off): Apply to Source Clip turns off Motion and cuts,
+// Stabilize turns off cuts. The option's own setting (the .on class, which is what's saved) is
+// kept, so it comes back once the override is gone.
+const forcedState = () => ({
+  optMotion: opt("optSource") ? false : null,
+  optCuts: opt("optSource") || opt("optStabilize") ? false : null,
+});
+
 function showOverrides() {
-  const source = opt("optSource"), stab = opt("optStabilize");
-  const tags = {
-    optMotion: source ? ["(DISABLED)", "disabled"] : null,
-    optCuts: source || stab ? ["(DISABLED)", "disabled"] : null,
-    optForceFbf: stab ? ["(ENABLED)", "enabled"] : null,
-  };
-  for (const [id, tag] of Object.entries(tags)) {
-    if (tag) $(id).classList.add("overridden"); else $(id).classList.remove("overridden");
-    const el = $(id).querySelector(".tag");
-    el.textContent = tag ? tag[0] : "";
-    el.className = `tag ${tag ? tag[1] : ""}`;
+  const forced = forcedState();
+  for (const id of OPTIONS) {
+    const f = id in forced ? forced[id] : null, shown = f === null ? opt(id) : f;
+    if (f === null) $(id).classList.remove("overridden"); else $(id).classList.add("overridden");
+    const box = $(id).querySelector(".box");
+    box.textContent = shown ? "✓" : "";
+    box.className = `box${shown ? " checked" : ""}`;
+    $(id).setAttribute("aria-checked", shown ? "true" : "false");
   }
 }
 
@@ -971,7 +973,7 @@ async function addCuts(c, clips) {
 async function analyseAndFlip() {
   startRun("Analyze & Flip");
   const mode = applyMode(), stabilize = opt("optStabilize");
-  const forceWalk = opt("optForceFbf") || stabilize, withCuts = opt("optCuts") && mode !== "source" && !stabilize;
+  const forceWalk = opt("optForceFbf"), withCuts = opt("optCuts") && mode !== "source" && !stabilize;
   if (stabilize) log("Option: Stabilize Clip using Gyro (levels every frame).", "dim");
   if (mode === "motion") log("Option: Apply Rotation to Clip “Motion” Effect.", "dim");
   if (mode === "source") log("Option: Apply Rotation to Source Clip (all instances in the project).", "dim");
@@ -1248,7 +1250,9 @@ $("flip").addEventListener("click", () => guarded(analyseAndFlip));
 $("remove").addEventListener("click", () => guarded(removeRotation));
 $("stop").addEventListener("click", () => { stopRequested = true; status("Stopping…"); });
 $("scopeSwitch").addEventListener("click", () => { if (!busy) setSelectedOnly(!selectedOnly()); });
-for (const id of OPTIONS) $(id).addEventListener("click", () => { if (!busy) setOpt(id, !opt(id)); });
+for (const id of OPTIONS) {
+  $(id).addEventListener("click", () => { if (!busy && !$(id).classList.contains("overridden")) setOpt(id, !opt(id)); });
+}
 $("advancedToggle").addEventListener("click", () => {
   const open = $("advanced").classList.contains("hidden");
   if (open) $("advanced").classList.remove("hidden"); else $("advanced").classList.add("hidden");
