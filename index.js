@@ -94,31 +94,8 @@ function log(msg, cls, link) {
 // A new run jumps the log and the panel to the bottom, and the log sticks there again.
 function startRun(label) {
   logSticky = true;
-  // The panel scrolls down once the logo animation is over, smoothly, so it's clear what moved.
-  scrollMainToBottom(Math.max(0, logoAnimEnd - Date.now()) + 80);
   if ($("log").childNodes.length) log(" ");
   log(`── ${label} · ${new Date().toLocaleTimeString()} ──`, "dim");
-}
-
-let mainScrollTimer = null;
-function scrollMainToBottom(delay) {
-  if (mainScrollTimer) clearTimeout(mainScrollTimer);
-  mainScrollTimer = setTimeout(() => {
-    const els = [document.documentElement, document.body].filter((el) => el);
-    const from = els.map((el) => el.scrollTop || 0), t0 = Date.now(), dur = 400;
-    const ease = (x) => (x < 0.5 ? 2 * x * x : 1 - 2 * (1 - x) ** 2);
-    const tick = () => {
-      const x = Math.min(1, (Date.now() - t0) / dur);
-      els.forEach((el, i) => {
-        try {
-          const to = Math.max(0, el.scrollHeight - el.clientHeight);
-          if (to > from[i]) el.scrollTop = from[i] + (to - from[i]) * ease(x);
-        } catch (e) { /* not scrollable */ }
-      });
-      mainScrollTimer = x < 1 ? setTimeout(tick, 16) : null;
-    };
-    tick();
-  }, delay);
 }
 
 function status(msg) { $("status").textContent = msg || ""; }
@@ -1106,6 +1083,9 @@ async function analyseAndFlip() {
         (cleaned.size ? `, ${cleaned.size} upright clip(s) cleaned up` : "") + " …");
   }
 
+  // a quick analysis waits for the logo to finish turning before anything in Premiere changes
+  const wait = logoAnimEnd - Date.now();
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   if (opt("optAutoSave")) await autoBackup(project);
   status("Applying rotation…");
 
@@ -1314,7 +1294,7 @@ $("log").addEventListener("scroll", () => {
   logSticky = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
 });
 initLogo();
-$("flip").addEventListener("click", () => { if (!busy) animateLogo(opt("optStabilize")); guarded(analyseAndFlip); });
+$("flip").addEventListener("click", () => { if (!busy) animateLogo(opt("optStabilize")); return guarded(analyseAndFlip); });
 $("remove").addEventListener("click", () => guarded(removeRotation));
 $("stop").addEventListener("click", () => { stopRequested = true; status("Stopping…"); });
 $("scopeSwitch").addEventListener("click", () => { if (!busy) setSelectedOnly(!selectedOnly()); });

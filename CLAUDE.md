@@ -20,7 +20,7 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
   grey box (no tick when forced off) and ignoring clicks; the saved `.on` state returns when the override ends. Only
   colours change when greyed (no tags since 2.5.1: Jacob found the layout shift jarring); status line, per-clip
   progress bar, log (fills remaining height, scrolls, never cleared: each run appends under a dim header; a new run
-  jumps the log and the panel to the bottom and the log follows new lines until the editor scrolls up).
+  jumps the log to the bottom and the log follows new lines until the editor scrolls up).
   Colours: "Fast Analysis" blue (`.fast`), "Frame-by-Frame Analysis" yellow (`.fbf`; `log()` colours both
   phrases automatically via `appendColoured()`, also used for the main button, undo and backup text), "stabiliz…"
   words purple (`.stab`, 2.5.7), warnings orange (`.warning`, log class `warn`; option warnings only show while the
@@ -34,8 +34,9 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
   swapped with `style.opacity` by `animateLogo()` (setTimeout ~16 ms; 2.5.8 used `display`, which made frames flash at
   the wrong size now and then: re-showing a display:none image re-lays it out). Fixed width/height attributes too. Analyze & Flip: one clockwise turn with a
   back-out overshoot (1.1 s); Analyze & Stabilize: a small decaying rock (±15°, 1.4 s). Ends on the static header.png.
-- New runs (`startRun`) scroll the panel to the bottom after the logo animation ends (`logoAnimEnd`), with a 0.4 s
-  eased scroll (`scrollMainToBottom`, 2.5.9) instead of a jump. The log box itself still jumps.
+- The panel itself never auto-scrolls (removed in 2.5.10 at Jacob's request; only the log box follows new lines).
+  If analysis finishes before the logo animation, `analyseAndFlip` waits until `logoAnimEnd` before the backup and
+  the first edit (2.5.10).
 - Auto-Backup Project label carries a grey "(Recommended)" (`.dim`), 2.5.8.
 - Builds are named `REDFlipper-v<version>.ccx` and saved one folder up (`C:\Users\Jacob\Videos\Plugins`);
   the newest one is attached to the matching GitHub release.
