@@ -33,14 +33,14 @@ ADVANCED OPTIONS (remembered between sessions)
   halves keep all effects. Undo does not rejoin cuts: use Ctrl+Z, or right-click
   the cut > Join Through Edits (Ctrl + Left-click drag to select multiple cut points).
   Greyed out (off) when Apply Rotation to Source Clip or Stabilize is on.
-- Stabilize Clip using Gyro: instead of only flipping, levels the horizon on every frame.
+- Lock to Horizon (Stabilize): the main button becomes "Analyze & Stabilize". Instead of only flipping, levels the horizon on every frame.
   The camera's roll angle comes from gravity measured by its motion sensor (averaged over
   0.1 s around each frame), so upside-down sections come out at 180 and small tilts are
   corrected too. Keyframes are linear; a key is only kept where a straight line between
   its neighbours would be off by more than 0.05 degrees. Goes to the Transform, Motion or
   Source Clip like a flip. Disables cuts. Rotating
   shows the frame's corners; scale up to hide them.
-- Auto-Backup Project (on by default): every time Analyze & Flip is used, saves the
+- Auto-Backup Project (on by default): every time Analyze & Flip (or Analyze & Stabilize) is used, saves the
   project (like Ctrl+S), then puts a timestamped copy (<project>-REDFlipper-<date>_<time>.prproj)
   in the "Adobe Premiere Pro Auto-Save" folder next to the project, before anything is
   changed. The bottom of Advanced shows the folder and the last backup. Click a backup

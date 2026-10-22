@@ -108,6 +108,7 @@ function setOpt(id, on) {
   if (on) $(id).classList.add("on"); else $(id).classList.remove("on");
   try { localStorage.setItem(`redflipper.${id}`, on ? "1" : "0"); } catch (e) { /* not remembered */ }
   showOverrides();
+  $("flip").textContent = runLabel();
   $("undoInfo").textContent = undoText();
   refreshBackupInfo();
 }
@@ -143,6 +144,9 @@ function loadOptions() {
     setOpt(id, on);
   }
 }
+
+// the main button: "Analyze & Stabilize" while Lock to Horizon is on
+const runLabel = () => (opt("optStabilize") ? "Analyze & Stabilize" : "Analyze & Flip");
 
 // where the rotation goes: "transform" (default), "motion" or "source"
 const applyMode = () => (opt("optSource") ? "source" : opt("optMotion") ? "motion" : "transform");
@@ -749,7 +753,7 @@ async function refreshBackupInfo() {
     for (const p of parts) d.appendChild(typeof p === "string" ? document.createTextNode(p) : p);
     box.appendChild(d);
   };
-  line("REDFlipper auto-backups your project every time “Analyze & Flip” is used (unless disabled).");
+  line(`REDFlipper auto-backups your project every time “${runLabel()}” is used (unless disabled).`);
   line("Backups are located at: ", folder ? pathLink(folder) : where);
   line("Last backup: ", last);
 }
@@ -971,10 +975,10 @@ async function addCuts(c, clips) {
 // ------------------------------------------------------------------ actions
 
 async function analyseAndFlip() {
-  startRun("Analyze & Flip");
+  startRun(runLabel());
   const mode = applyMode(), stabilize = opt("optStabilize");
   const forceWalk = opt("optForceFbf"), withCuts = opt("optCuts") && mode !== "source" && !stabilize;
-  if (stabilize) log("Option: Stabilize Clip using Gyro (levels every frame).", "dim");
+  if (stabilize) log("Option: Lock to Horizon (Stabilize), levels every frame.", "dim");
   if (mode === "motion") log("Option: Apply Rotation to Clip “Motion” Effect.", "dim");
   if (mode === "source") log("Option: Apply Rotation to Source Clip (all instances in the project).", "dim");
   if (withCuts) log("Option: Add Cut at each Flip Point.", "dim");

@@ -130,7 +130,7 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   removed. 2.4.7 finds the copy by start time only, tries the remove as ANY+audio, VIDEO, ANY and checks the timeline
   after each, logs which failed (with Premiere's error), and stops further cuts after a failure.
 
-## Stabilize (2.5.0, `optStabilize`)
+## Stabilize (2.5.0, `optStabilize`; label "Lock to Horizon (Stabilize)" and button "Analyze & Stabilize" via `runLabel()` since 2.5.3)
 - `rollKeys(clip)`: per frame, roll = ROLL_SIGN · atan2(Y, Z) of gravity averaged over ±50 ms (prefix sums over the
   10 ms bins), held while hypot(Y,Z) < 0.35, unwrapped (no 360° jumps). Keys simplified with Ramer–Douglas–Peucker
   (0.05° tolerance), LINEAR interpolation. `stabPlan(result)` caches it on the analysis result (which keeps `clip`
