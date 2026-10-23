@@ -287,6 +287,15 @@ function closeMenus() {
     if ("parentNode" in menu && menu.parentNode) menu.parentNode.removeChild(menu);
   }
 }
+// Re-lays out the Advanced box in one go (hidden and shown again before anything is drawn, so
+// nothing blinks): what Jacob's manual Advanced close/open did to free a stuck mouse.
+function releaseMouse() {
+  const box = $("advanced");
+  if (box.classList.contains("hidden")) return;
+  box.style.display = "none";
+  void box.offsetHeight;
+  box.style.display = "";
+}
 function openMenu(id) {
   const menu = menuEls[id];
   if ("parentNode" in menu && !menu.parentNode) $(id).appendChild(menu);
@@ -320,10 +329,16 @@ function loadSubOptions() {
       item.textContent = label;
       item.addEventListener("click", (e) => {
         if (e && e.stopPropagation) e.stopPropagation();
-        closeMenus();
-        if (busy) return;
-        el.value = value;
-        changed();
+        // the menu goes away only once Premiere has finished with this click: taking the clicked
+        // item away inside its own click seems to leave the mouse stuck to it (2.6.15)
+        const locked = busy;
+        setTimeout(() => {
+          closeMenus();
+          releaseMouse();
+          if (locked || busy) return;
+          el.value = value;
+          changed();
+        }, 0);
       });
       menu.appendChild(item);
       return [value, item];
