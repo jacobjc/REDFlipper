@@ -148,7 +148,7 @@ function log(msg, cls, link) {
   if (link) d.appendChild(pathLink(link.path, link.folder));
   if (cls) d.className = cls;
   box.appendChild(d);
-  if (logPlain) $("logText").value = logAsText();
+  if (logPlain) { $("logText").value = logAsText(); textToBottom(); }
   if (logSticky) logToBottom();
 }
 
@@ -192,15 +192,15 @@ async function copyLog() {
 // The plain view opens at the last line (2.6.19): caret at the end and scrolled down, again once
 // it's laid out (a text box just shown can still report no height).
 function textToBottom() {
-  const box = $("logText");
-  // UXP ignored scrollTop on the text box in 2.6.19, so it's also focused with the caret at the end,
-  // which scrolls the caret into view
-  const go = () => {
-    try { box.focus(); } catch (e) { /* not focusable */ }
-    try { if (box.setSelectionRange) box.setSelectionRange(box.value.length, box.value.length); } catch (e) { /* scroll is enough */ }
-    try { box.selectionStart = box.selectionEnd = box.value.length; } catch (e) { /* as above */ }
-    box.scrollTop = box.scrollHeight;
-  };
+  // UXP doesn't scroll a text box from script (2.6.19/2.6.20 tried scrollTop and the caret), so
+  // since 2.6.22 the text box is as tall as its lines (no wrapping) and the box around it scrolls.
+  const box = $("logText"), wrap = $("logTextWrap");
+  const lines = box.value.split("\n");
+  box.style.height = `${(lines.length + 1) * 13 + 12}px`;
+  // wide enough for the longest line (Consolas 11 px: about 6.1 px a character); the wrap scrolls sideways
+  const cols = Math.max(0, ...lines.map((l) => l.length));
+  box.style.width = `${Math.max(wrap.clientWidth || 0, Math.ceil(cols * 6.2) + 24)}px`;
+  const go = () => { wrap.scrollTop = wrap.scrollHeight; };
   go();
   for (const ms of [30, 150]) setTimeout(go, ms);
 }
@@ -209,10 +209,10 @@ function toggleLogPlain() {
   const box = $("logText");
   if (logPlain) {
     box.value = logAsText();
-    $("log").classList.add("hidden"); $("welcome").classList.add("hidden"); box.classList.remove("hidden");
+    $("log").classList.add("hidden"); $("welcome").classList.add("hidden"); $("logTextWrap").classList.remove("hidden");
     textToBottom();
   } else {
-    box.classList.add("hidden");
+    $("logTextWrap").classList.add("hidden");
     if ($("log").childNodes.length) $("log").classList.remove("hidden"); else $("welcome").classList.remove("hidden");
     if (logSticky) logToBottom();
   }

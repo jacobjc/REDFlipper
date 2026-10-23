@@ -65,8 +65,10 @@
                display: flex; align-items: center; justify-content: center; font-family: Consolas, monospace;
                font-size: 8px; line-height: 9px; color: #666; white-space: pre; }
     #welcome.hidden { display: none; }
-    #logText { border: 1px solid #555; border-radius: 4px; padding: 6px 8px; flex: 1 1 0px; min-height: 120px;
-               font-family: Consolas, monospace; font-size: 11px; background: transparent; color: #ddd; resize: none; }
+    #logTextWrap { border: 1px solid #555; border-radius: 4px; flex: 1 1 0px; min-height: 120px; overflow: auto; }
+    #logText { display: block; min-width: 100%; box-sizing: border-box; border: none; padding: 6px 8px; margin: 0;
+               font-family: Consolas, monospace; font-size: 11px; line-height: 13px; white-space: pre; overflow: hidden;
+               background: transparent; color: #ddd; resize: none; }
     #progressWrap { height: 4px; background: #3a3a3a; border-radius: 2px; overflow: hidden; margin: 0 0 8px; }
     #progressBar { height: 4px; width: 0%; background: #2d8ceb; }
     .hidden { display: none; }
@@ -128,6 +130,6 @@
   <div id="progressWrap" class="hidden"><div id="progressBar"></div></div>
   <div id="log" class="hidden"></div>
   <pre id="welcome"></pre>
-  <textarea id="logText" class="hidden" readonly></textarea>
+  <div id="logTextWrap" class="hidden"><textarea id="logText" readonly wrap="off"></textarea></div>
 </body>
 </html>
