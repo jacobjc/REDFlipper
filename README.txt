@@ -35,18 +35,23 @@ ADVANCED OPTIONS (remembered between sessions)
 - Add Cut at each Flip Point: cuts the timeline clip where the camera flips (not with the
   Source option). Premiere's plugin API has no razor, so the cut is made by inserting a
   copy of the clip at the flip point (which splits it) and ripple-deleting the copy; both
-  halves keep all effects. Undo does not rejoin cuts: use Ctrl+Z, or right-click
-  the cut > Join Through Edits (Ctrl + Left-click drag to select multiple cut points).
+  halves keep all effects. Undo does not rejoin cuts: use Ctrl+Z (Cmd+Z on macOS), or right-click
+  the cut > Join Through Edits (Ctrl/Cmd + Left-click drag to select multiple cut points).
   Greyed out (off) when Apply Rotation to Source Clip or Stabilize is on.
 - Lock to Horizon (Stabilize Rotation): the main button becomes "Analyze & Stabilize". Instead of only flipping, levels the horizon on every frame.
   The camera's roll angle comes from its motion sensor: gravity (the accelerometer) says
   where level is, and the gyro follows fast turns, so whip pans and jolts don't knock the
   horizon off. The log says per clip whether the gyro was used.
   Upside-down sections come out at 180 and small tilts are corrected too. One linear keyframe on every frame. Goes to the Transform, Motion or
-  Source Clip like a flip. Disables cuts. Rotating
-  shows the frame's corners; scale up to hide them.
+  Source Clip like a flip. Disables cuts.
+  Settings under it (while it's ticked):
+  - Stabilizing Method: Gyroscope & Accelerometer (default) or Accelerometer Only.
+  - Framing: Scale to Fill Frame (default) zooms each clip just enough to hide the corners the
+    rotation shows (one fixed zoom per clip, for the part of it used in the sequence; flips are
+    ignored), in the same place as the rotation (Transform, Motion or Source Clip). In Motion it
+    multiplies the clip's own Scale, and Undo puts it back. No Change leaves the scale alone.
 - Auto-Backup Project (recommended, on by default): every time Analyze & Flip (or Analyze & Stabilize) is used, saves the
-  project (like Ctrl+S), then puts a timestamped copy (<project>-REDFlipper-<date>_<time>.prproj)
+  project (like Ctrl+S / Cmd+S), then puts a timestamped copy (<project>-REDFlipper-<date>_<time>.prproj)
   in the "Adobe Premiere Pro Auto-Save" folder next to the project, before anything is
   changed. The bottom of Advanced shows the folder and the last backup. Click a backup
   path (there or in the log) to open its folder; Premiere may ask to allow this once. (Premiere's own

@@ -57,8 +57,12 @@ const FAST = "Fast Analysis", FBF = "Frame-by-Frame Analysis";
 const COLOURED_RE = /(Fast Analysis|Frame-by-Frame Analysis|[Ss]tabiliz[a-z]*)/;
 
 // Appends text to an element, wrapping the colour-coded words in spans.
+// Shortcuts in the panel's text say Cmd on macOS and Ctrl on Windows (the text is written with Ctrl).
+const IS_MAC = (() => { try { return require("os").platform() === "darwin"; } catch (e) { return false; } })();
+const keyNames = (text) => (IS_MAC ? String(text).replace(/\bCtrl\b/g, "Cmd") : String(text));
+
 function appendColoured(el, text) {
-  for (const part of String(text).split(COLOURED_RE)) {
+  for (const part of keyNames(text).split(COLOURED_RE)) {
     if (!part) continue;
     const cls = part === FAST ? "fast" : part === FBF ? "fbf" : /^[Ss]tabiliz/.test(part) ? "stab" : null;
     if (!cls) { el.appendChild(document.createTextNode(part)); continue; }
@@ -198,6 +202,24 @@ function showOverrides() {
     box.className = `box${shown ? " checked" : ""}`;
     $(id).setAttribute("aria-checked", shown ? "true" : "false");
   }
+  if (opt("optStabilize")) $("stabOptions").classList.remove("hidden"); else $("stabOptions").classList.add("hidden");
+}
+
+// Lock to Horizon's settings (dropdowns under it, shown while it's ticked)
+const SUBOPTS = { stabMethod: "gyro", stabFraming: "fill" };
+const sub = (id) => { const v = $(id).value; return v === undefined || v === null || v === "" ? SUBOPTS[id] : v; };
+
+function loadSubOptions() {
+  for (const id of Object.keys(SUBOPTS)) {
+    let v = SUBOPTS[id];
+    try { const saved = localStorage.getItem(`redflipper.${id}`); if (saved) v = saved; } catch (e) { /* default */ }
+    $(id).value = v;
+    $(id).addEventListener("change", () => {
+      try { localStorage.setItem(`redflipper.${id}`, sub(id)); } catch (e) { /* not remembered */ }
+      $("undoInfo").textContent = "";
+      appendColoured($("undoInfo"), undoText());
+    });
+  }
 }
 
 function loadOptions() {
@@ -228,7 +250,8 @@ function undoText() {
             "goes back to upright. Timeline effects are left alone.",
   }[mode];
   if (opt("optStabilize")) {
-    text += mode === "motion" ? " Stabilizing keyframes on Motion > Rotation are cleared too." : " This also removes stabilization.";
+    text += mode === "motion" ? " Stabilizing keyframes on Motion > Rotation are cleared too, and Motion > Scale goes back to what it was."
+                              : " This also removes stabilization (and its Scale to Fill).";
   }
   if (opt("optCuts") && mode !== "source" && !opt("optStabilize")) {
     text += " Cuts stay: use Ctrl+Z, or right-click a cut > Join Through Edits.\nCtrl + Left-click drag to select multiple cut points.";
@@ -748,28 +771,92 @@ function rollKeys(clip, use) {
 }
 
 // The stabilize plan for an analysed clip (computed once, kept with the cached analysis).
-function stabPlan(result) {
+// method: "gyro" (gyroscope & accelerometer) or "accel" (accelerometer only)
+function stabPlan(result, method = "gyro") {
   const k = result.plan.kind;
   if (k === "error" || k === "nodata") return result.plan;
-  if (!result.stab) {
+  result.stabs = result.stabs || {};
+  if (!result.stabs[method]) {
     const clip = result.clip;
     let gyro = { fail: "no motion data" }, keys = null;
     if (clip && clip.rows && clip.rows.length) {
       const grav = clip.grav || (clip.grav = gravityRoll(clip.rows));
-      gyro = clip.rows[0].length > 4 ? checkGyro(clip.rows, grav) : { fail: "no gyro data" };
-      keys = rollKeys(clip, gyro.fail ? null : { scale: ROLL_SIGN * GYRO_DEG_PER_UNIT, offset: gyro.bias });
+      if (method === "accel") gyro = { off: true };
+      else gyro = clip.rows[0].length > 4 ? checkGyro(clip.rows, grav) : { fail: "no gyro data" };
+      keys = rollKeys(clip, gyro.fail || gyro.off ? null : { scale: ROLL_SIGN * GYRO_DEG_PER_UNIT, offset: gyro.bias });
     }
-    result.stab = keys ? { kind: "stab", gyro, keys: keys.map((x) => ({ ...x, tc: tc(x.frame, result.fpsNum, result.fpsDen) })) }
-                       : { kind: "nodata" };
+    result.stabs[method] = keys ? { kind: "stab", gyro, keys: keys.map((x) => ({ ...x, tc: tc(x.frame, result.fpsNum, result.fpsDen) })) }
+                                : { kind: "nodata" };
   }
-  return result.stab;
+  return result.stabs[method];
 }
 
 // log line on how a clip's horizon was found
 function gyroNote(name, g) {
   if (!g) return;
-  if (!g.fail) log(`${name}: leveling uses gyro + gravity.`, "dim");
+  if (g.off) log(`${name}: leveling from the accelerometer only.`, "dim");
+  else if (!g.fail) log(`${name}: leveling uses gyro + gravity.`, "dim");
   else log(`${name}: gyro not used (${g.fail}). Leveling from gravity only.`, "warn");
+}
+
+// Scale to Fill: the zoom that keeps a frame of aspect `aspect` (width / height) covered when the
+// picture is turned by phi degrees: max((A·cos + sin) / A, A·sin + cos). Upside-down needs none, so
+// phi is the tilt away from the nearest 0°/180°. Flips (frames tilted more than FILL_MAX_TILT, where
+// the camera is sideways, plus FILL_FLIP_MARGIN_S around them) are left out, or one flip would zoom
+// the whole clip in.
+const FILL_MAX_TILT = 30;
+const FILL_FLIP_MARGIN_S = 0.5;
+const FILL_MAX_SCALE = 2;
+function fillScale(keys, fromFrame, toFrame, aspect, recordFps) {
+  const phis = keys.map((k) => Math.abs(k.value - 180 * Math.round(k.value / 180)));
+  const margin = Math.round(FILL_FLIP_MARGIN_S * recordFps), skip = new Uint8Array(keys.length);
+  phis.forEach((phi, i) => {
+    if (phi > FILL_MAX_TILT) for (let j = Math.max(0, i - margin); j <= Math.min(keys.length - 1, i + margin); j++) skip[j] = 1;
+  });
+  let worst = 0, scale = 1;
+  for (const [i, k] of keys.entries()) {
+    if (k.frame < fromFrame || k.frame >= toFrame || skip[i]) continue;
+    const phi = phis[i];
+    if (phi <= worst) continue;
+    worst = phi;
+    const r = phi * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+    scale = Math.max((aspect * c + s) / aspect, aspect * s + c);
+  }
+  return { scale: Math.min(FILL_MAX_SCALE, Math.ceil(scale * 1000) / 1000), tilt: worst, capped: scale > FILL_MAX_SCALE };
+}
+
+// The frame's width / height, from the sequence (16:9 if it can't be read).
+async function frameAspect(seq) {
+  try {
+    const r = await seq.getFrameSize();
+    const w = r.width !== undefined ? r.width : r.right - r.left, h = r.height !== undefined ? r.height : r.bottom - r.top;
+    if (w > 0 && h > 0) return w / h;
+  } catch (e) { /* default */ }
+  return 16 / 9;
+}
+
+function scaleOf(component) {
+  const n = component.getParamCount();
+  let height = null;
+  for (let j = 0; j < n; j++) {
+    const p = component.getParam(j);
+    if (p.displayName === "Scale") return p;
+    if (p.displayName === "Scale Height") height = p;
+  }
+  return height;
+}
+
+// Motion mode multiplies the clip's own Motion > Scale, so the factor used is remembered per clip
+// (media + in point) to take it back out on a re-run or Undo.
+const motionScaleKey = (t) => `redflipper.motionScale.${t.path}|${ticksOf(t.inPoint)}`;
+function storedMotionScale(t) {
+  try { const v = Number(localStorage.getItem(motionScaleKey(t))); return v > 0 ? v : 1; } catch (e) { return 1; }
+}
+function storeMotionScale(t, factor) {
+  try {
+    if (Math.abs(factor - 1) < 1e-6) localStorage.removeItem(motionScaleKey(t));
+    else localStorage.setItem(motionScaleKey(t), String(factor));
+  } catch (e) { /* not remembered */ }
 }
 
 // ------------------------------------------------------------------ Premiere helpers
@@ -1215,7 +1302,7 @@ async function analyseAndFlip() {
   const sources = new Map();
   for (const t of c.targets) {
     checkStop();
-    t.plan = stabilize ? stabPlan(t.result) : t.result.plan;
+    t.plan = stabilize ? stabPlan(t.result, sub("stabMethod")) : t.result.plan;
     if (!sources.has(t.path)) {
       if (stabilize) gyroNote(t.name, t.plan.gyro);
       sources.set(t.path, { name: t.name, cpi: t.cpi, inPoint: t.inPoint, result: t.result, plan: t.plan, targets: [],
@@ -1255,6 +1342,10 @@ async function analyseAndFlip() {
   if (!units.length && !cleaned.size) {
     return log("Done: 0 clip(s) updated. All RED clips in scope are upright or skipped. Nothing to change.", "ok");
   }
+  // Scale to Fill needs the part of each timeline clip that's used, and the frame's shape
+  const fill = stabilize && sub("stabFraming") === "fill";
+  const aspect = await frameAspect(c.seq);
+  for (const u of units) if (u.item) { try { u.outPoint = await u.item.getOutPoint(); } catch (e) { /* whole clip */ } }
   const nInv = units.filter((u) => u.plan.kind === "inverted").length;
   const what = mode === "source" ? "source clip(s)" : "clip(s)";
   if (stabilize) {
@@ -1424,6 +1515,41 @@ async function analyseAndFlip() {
       `the other ${left.length} were left without REDFlipper rotation. Run again to finish them, or use “Undo”.`);
   }
 
+  // 5b. Framing. Scale to Fill zooms each stabilized clip just enough to hide the corners the
+  // rotation shows (one fixed scale per clip, for the part of it that's used); otherwise REDFlipper's
+  // own Transform goes back to 100%. Motion mode multiplies Motion > Scale and remembers the factor.
+  if (mode !== "motion" || fill || units.some((u) => (u.targets || [u]).some((t) => storedMotionScale(t) !== 1))) {
+    for (const u of ready) {
+      if (bad.has(u)) continue;
+      let want = 1, info = null;
+      if (fill && u.plan.kind === "stab") {
+        const fr = (tt) => Math.round(Number(ticksOf(tt)) * u.result.fpsNum / (u.result.fpsDen * Number(TICKS_PER_SEC)));
+        info = fillScale(u.plan.keys, u.item ? fr(u.inPoint) : 0, u.item && u.outPoint ? fr(u.outPoint) : Infinity, aspect,
+                         (u.result.clip && u.result.clip.recordFps) || 24);
+        want = info.scale;
+      }
+      try {
+        const { comp } = await refetch(u);
+        const scale = scaleOf(comp);
+        if (!scale) { if (want !== 1) log(`${u.name}: couldn't find the Scale setting, so it wasn't scaled to fill`, "warn"); continue; }
+        if (scale.isTimeVarying()) { if (want !== 1) log(`${u.name}: its Scale is keyframed, so it wasn't scaled to fill`, "warn"); continue; }
+        const now = num(await scale.getValueAtTime(u.inPoint || tickTime(0n)));
+        const prev = mode === "motion" ? storedMotionScale(u) : 1;
+        const target = mode === "motion" ? (now / prev) * want : 100 * want;
+        if (Math.abs(target - now) > 0.001) {
+          if (!transact(project, "scale to fill", () => [scale.createSetValueAction(scale.createKeyframe(target), true)])) {
+            log(`${u.name}: couldn't set its Scale${lastTxError ? ` (${lastTxError})` : ""}`, "warn"); continue;
+          }
+        }
+        if (mode === "motion") storeMotionScale(u, want);
+        if (info && want > 1) {
+          log(`${u.name}: scaled ${mode === "motion" ? `by ${(want * 100).toFixed(1)}% (to ${target.toFixed(1)}%)` : `to ${(want * 100).toFixed(1)}%`}` +
+              ` to fill the frame (tilts up to ${info.tilt.toFixed(1)}°).`, info.capped ? "warn" : "dim");
+        }
+      } catch (e) { log(`${u.name}: couldn't set its Scale (${e && e.message ? e.message : e})`, "warn"); }
+    }
+  }
+
   // 6. keyframe test on the first mid-take clip (stabilizing: values at a few keys, and halfway between two)
   const check = anim.find((t) => !bad.has(t) && t.plan.keys.length > 1);
   if (check && stabilize) await refetch(check);
@@ -1499,6 +1625,17 @@ async function removeRotation() {
     failed = [...f1, ...f2];
     motion.filter((t) => !failed.includes(t)).forEach((t) => updated.add(t));
     found = motion.length;
+    // take back a Scale to Fill zoom (Motion > Scale was multiplied; the factor was remembered)
+    for (const t of motion.filter((x) => !failed.includes(x) && storedMotionScale(x) !== 1)) {
+      try {
+        const chain = await t.item.getComponentChain();
+        const scale = scaleOf(chain.getComponentAtIndex(t.scan.motionIndex));
+        const now = num(await scale.getValueAtTime(t.inPoint));
+        if (transact(c.project, "undo scale to fill", () => [scale.createSetValueAction(scale.createKeyframe(now / storedMotionScale(t)), true)])) {
+          storeMotionScale(t, 1);
+        } else throw new Error(lastTxError || "refused");
+      } catch (e) { log(`${t.name}: couldn't put Motion > Scale back (${e && e.message ? e.message : e}); please check it`, "warn"); }
+    }
     summary = `Reset Motion rotation to 0° on ${updated.size} clip(s).`;
   } else {
     // removing a Source Transform affects every instance of that clip in the project
@@ -1535,6 +1672,7 @@ async function removeRotation() {
   } catch (e) { /* version label is optional */ }
 })();
 
+loadSubOptions();
 loadOptions();
 $("log").addEventListener("scroll", () => {
   const box = $("log");

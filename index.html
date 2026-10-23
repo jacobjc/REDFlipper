@@ -44,6 +44,11 @@
        forced on, and then still orange) */
     .optText .warning { display: none; }
     .opt.shown .optText .warning { display: block; }
+    /* Lock to Horizon's own settings, under its label while it's ticked */
+    #stabOptions { margin: 0 0 6px 20px; }
+    .subopt { display: flex; align-items: center; margin: 3px 0; }
+    .subLabel { width: 130px; flex-shrink: 0; color: #ccc; }
+    #stabOptions select { min-width: 220px; }
     #backupInfo { color: #999; margin-top: 10px; overflow-wrap: anywhere; word-break: break-all; }
     .link { text-decoration: underline; cursor: pointer; color: #b8d4ff; }
     #undoInfo { color: #999; border-top: 1px solid #444; margin-top: 6px; padding-top: 5px; white-space: pre-line; }
@@ -92,6 +97,12 @@
         <span class="warning">(Warning: affects all instances of this clip in project.)</span></div></div>
     <div class="opt" id="optStabilize" role="checkbox" aria-checked="false"><div class="box"></div>
       <div class="optText">Lock to Horizon (<span class="stab">Stabilize</span> Rotation)</div></div>
+    <div id="stabOptions" class="hidden">
+      <div class="subopt"><span class="subLabel">Stabilizing Method:</span>
+        <select id="stabMethod"><option value="gyro">Gyroscope &amp; Accelerometer</option><option value="accel">Accelerometer Only</option></select></div>
+      <div class="subopt"><span class="subLabel">Framing:</span>
+        <select id="stabFraming"><option value="fill">Scale to Fill Frame</option><option value="none">No Change</option></select></div>
+    </div>
     <div class="opt" id="optForceFbf" role="checkbox" aria-checked="false"><div class="box"></div>
       <div class="optText">Force <span class="fbf">Frame-by-Frame Analysis</span>
         <span class="warning">(Warning: SLOW, doesn't improve quality)</span></div></div>
