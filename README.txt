@@ -44,8 +44,10 @@ ADVANCED OPTIONS (remembered between sessions)
   The camera's roll angle comes from its motion sensor: gravity (the accelerometer) says
   where level is, and the gyro follows fast turns, so whip pans and jolts don't knock the
   horizon off. The log says per clip whether the gyro was used.
-  Upside-down sections come out at 180 and small tilts are corrected too. One linear keyframe on every frame. Goes to the Transform, Motion or
-  Source Clip like a flip. Disables cuts.
+  Upside-down sections come out at 180 and small tilts are corrected too. One keyframe on every frame of the part of the clip used in
+  the sequence, plus 1 second either side (extend a trim further and run it again to stabilize the new
+  part; with Source Clip effect the whole clip is keyed). Goes to the Transform, Motion or Source Clip
+  like a flip. Disables cuts.
   Settings under it (while it's ticked):
   - Stabilizing Method: Gyroscope & Accelerometer (default) or Accelerometer Only.
   - Framing: Scale to Fill Frame (default) zooms each clip just enough to hide the corners the

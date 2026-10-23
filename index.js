@@ -46,6 +46,7 @@ const KEY_BATCH = 300;           // keyframes per Premiere step while applying (
 // stabilization is worked out, so Premiere can redraw and handle clicks (Stop included).
 const BATCH_REST_MS = 15;
 const CLIP_REST_MS = 60;
+const STAB_HANDLE_S = 1;          // stabilizing keys this much (as played) beyond each end of the used part
 const STOP_GROUP = 10;           // unfinished clips undone per step after a Stop
 const rest = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -1516,6 +1517,18 @@ async function analyseAndFlip() {
   const fill = stabilize && sub("stabFraming") === "fill";
   const aspect = await frameAspect(c.seq);
   for (const u of units) if (u.item) { try { u.outPoint = await u.item.getOutPoint(); } catch (e) { /* whole clip */ } }
+  // Stabilizing a timeline clip keys only the part that's used, plus STAB_HANDLE_S either side
+  // (2.6.12; the whole source clip before). Source mode keeps the whole clip (every instance uses it).
+  if (stabilize && mode !== "source") {
+    for (const u of units) {
+      if (!u.item || u.plan.kind !== "stab") continue;
+      const toFrame = (tt) => Math.round(Number(ticksOf(tt)) * u.result.fpsNum / (u.result.fpsDen * Number(TICKS_PER_SEC)));
+      const handle = Math.round(STAB_HANDLE_S * u.result.fpsNum / u.result.fpsDen);
+      const from = toFrame(u.inPoint) - handle, to = u.outPoint ? toFrame(u.outPoint) + handle : Infinity;
+      const keys = u.plan.keys.filter((k) => k.frame >= from && k.frame <= to);
+      if (keys.length >= 2 && keys.length < u.plan.keys.length) u.plan = { ...u.plan, keys };
+    }
+  }
   const nInv = units.filter((u) => u.plan.kind === "inverted").length;
   const what = mode === "source" ? "source clip(s)" : "clip(s)";
   if (stabilize) {
