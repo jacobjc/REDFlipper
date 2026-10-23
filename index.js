@@ -118,16 +118,22 @@ function log(msg, cls, link) {
 // Scrolls the log to the end, now and again once the new lines are laid out: right after an append
 // UXP can still report the old height, which left the log short of the end (and, as that looked
 // like the editor scrolling up, stopped it following; seen after a Stop, 2.6.8).
-let logScrollTimer = null;
+// Lines can arrive faster than UXP lays them out, so it scrolls again a little later, twice.
+let logRescrolls = 0;   // later scrolls still pending
 function logToBottom() {
   const box = $("log");
+  logAutoScrollAt = Date.now();
   box.scrollTop = box.scrollHeight;
-  if (logScrollTimer) return;
-  logScrollTimer = setTimeout(() => {
-    logScrollTimer = null;
-    if (logSticky) box.scrollTop = box.scrollHeight;
-  }, 30);
+  if (logRescrolls) return;
+  for (const ms of [30, 150]) {
+    logRescrolls++;
+    setTimeout(() => {
+      logRescrolls--;
+      if (logSticky) { logAutoScrollAt = Date.now(); box.scrollTop = box.scrollHeight; }
+    }, ms);
+  }
 }
+let logAutoScrollAt = 0, logUserAt = 0, logUserSeen = false;
 
 // Copy Log / Select Text. Text in a div can't be selected in UXP, so Select Text swaps the log for
 // the same lines in a read-only text box (selectable, Ctrl+C), and back again.
@@ -146,13 +152,24 @@ async function copyLog() {
   if (logPlain && box.selectionEnd > box.selectionStart) { text = box.value.slice(box.selectionStart, box.selectionEnd); what = "the selected text"; }
   status(await copyText(text) ? `Copied ${what} to the clipboard.` : "Couldn't copy to the clipboard.");
 }
+// The plain view opens at the last line (2.6.19): caret at the end and scrolled down, again once
+// it's laid out (a text box just shown can still report no height).
+function textToBottom() {
+  const box = $("logText");
+  const go = () => {
+    try { if (box.setSelectionRange) box.setSelectionRange(box.value.length, box.value.length); } catch (e) { /* scroll is enough */ }
+    box.scrollTop = box.scrollHeight;
+  };
+  go();
+  for (const ms of [30, 150]) setTimeout(go, ms);
+}
 function toggleLogPlain() {
   logPlain = !logPlain;
   const box = $("logText");
   if (logPlain) {
     box.value = logAsText();
     $("log").classList.add("hidden"); box.classList.remove("hidden");
-    box.scrollTop = box.scrollHeight;
+    textToBottom();
   } else {
     box.classList.add("hidden"); $("log").classList.remove("hidden");
     if (logSticky) logToBottom();
@@ -386,6 +403,9 @@ async function guarded(fn) {
   finally {
     busy = false;
     lockSettings(false);
+    // every finished operation ends with the log at its last line (2.6.19)
+    logSticky = true;
+    logToBottom();
     status("");
     progress(null);
     for (const id of ["flip", "remove"]) $(id).disabled = false;
@@ -1923,12 +1943,19 @@ async function removeRotation() {
 
 loadSubOptions();
 loadOptions();
-// Only the editor scrolling up lets go of the end (the log growing never does); back at the end, it follows again.
+// Only the editor scrolling up lets go of the end; back at the end, it follows again. A scroll counts
+// as the editor's only right after a wheel turn, mouse press or key in the log (2.6.19: fast logging
+// made UXP report scroll positions that looked like scrolling up). If UXP sends none of those
+// events, scrolls more than 300 ms after the panel's own scrolling count instead.
 let logLastTop = 0;
+for (const ev of ["wheel", "mousewheel", "mousedown", "pointerdown", "keydown"]) {
+  try { $("log").addEventListener(ev, () => { logUserAt = Date.now(); logUserSeen = true; }); } catch (e) { /* not sent */ }
+}
 $("log").addEventListener("scroll", () => {
-  const box = $("log"), top = box.scrollTop;
+  const box = $("log"), top = box.scrollTop, now = Date.now();
+  const byEditor = logUserSeen ? now - logUserAt < 1000 : now - logAutoScrollAt > 300;
   if (box.scrollHeight - top - box.clientHeight < 24) logSticky = true;
-  else if (top < logLastTop - 1) logSticky = false;
+  else if (top < logLastTop - 1 && byEditor) logSticky = false;
   logLastTop = top;
 });
 $("logCopy").addEventListener("click", () => copyLog());
