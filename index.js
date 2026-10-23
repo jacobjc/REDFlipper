@@ -261,109 +261,53 @@ function showOverrides() {
     box.className = `box${shown ? " checked" : ""}`;
     $(id).setAttribute("aria-checked", shown ? "true" : "false");
   }
-  if (opt("optStabilize")) $("stabOptions").classList.remove("hidden"); else { $("stabOptions").classList.add("hidden"); closeMenus(); }
+  if (opt("optStabilize")) $("stabOptions").classList.remove("hidden"); else $("stabOptions").classList.add("hidden");
   for (const m of ["motion", "source"]) {
     if (applyMode() === m) $(`applyWarn_${m}`).classList.remove("hidden"); else $(`applyWarn_${m}`).classList.add("hidden");
   }
 }
 
 // Dropdowns: where the rotation goes (2.6.6, replaced the Motion / Source Clip checkboxes) and Lock
-// to Horizon's settings (shown while it's ticked). Built from divs, like the checkboxes, so they
-// stay one text line tall (2.6.5: the native <select> was much taller).
+// to Horizon's settings (shown while it's ticked).
 const SUBOPTS = {
   applyTo: ["transform", [["transform", "Added Transform effect"], ["motion", "Default Motion effect"], ["source", "Source Clip effect"]]],
   stabMethod: ["gyro", [["gyro", "Gyroscope & Accelerometer"], ["accel", "Accelerometer Only"]]],
   stabFraming: ["fill", [["fill", "Scale to Fill Frame"], ["none", "No Change"]]],
 };
 const sub = (id) => { const v = $(id).value; return SUBOPTS[id][1].some(([k]) => k === v) ? v : SUBOPTS[id][0]; };
-// A hidden menu could keep catching the mouse in UXP (hand cursor, clicks swallowed until Advanced was
-// closed and opened again, 2.6.12). So a closed menu is taken out of the panel altogether and put
-// back when it opens (2.6.14; 2.6.13 hid and re-showed Advanced, which blinked).
-const menuEls = {};
-function closeMenus() {
-  for (const id of Object.keys(SUBOPTS)) {
-    const menu = menuEls[id] || $(id).querySelector(".ddMenu");
-    menu.classList.add("hidden");
-    if ("parentNode" in menu && menu.parentNode) menu.parentNode.removeChild(menu);
-  }
-}
-// Re-lays out the Advanced box in one go (hidden and shown again before anything is drawn, so
-// nothing blinks): what Jacob's manual Advanced close/open did to free a stuck mouse.
-function releaseMouse() {
-  const box = $("advanced");
-  if (box.classList.contains("hidden")) return;
-  box.style.display = "none";
-  void box.offsetHeight;
-  box.style.display = "";
-}
-function openMenu(id) {
-  const menu = menuEls[id];
-  if ("parentNode" in menu && !menu.parentNode) $(id).appendChild(menu);
-  menu.classList.remove("hidden");
-}
-
-// While a run is going the settings can't change (the run reads them as it goes). A dropdown opened
-// mid-run used to stay stuck open over the panel, showing a hand cursor and swallowing clicks (2.6.9).
+// While a run is going the settings can't change (the run reads them as it goes).
 function lockSettings(on) {
-  closeMenus();
+  for (const id of Object.keys(SUBOPTS)) $(id).disabled = on;
   if (on) $("advanced").classList.add("locked"); else $("advanced").classList.remove("locked");
 }
 
+// The dropdowns are Premiere's own <select>s again since 2.6.16: the div-built menus of 2.6.5–2.6.15
+// could leave the mouse stuck (hand cursor, clicks swallowed) in UXP, mostly when clicked quickly.
 function loadSubOptions() {
   for (const id of Object.keys(SUBOPTS)) {
     const el = $(id), [def, choices] = SUBOPTS[id];
-    el.value = def;
+    for (const [value, label] of choices) {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = label;
+      el.appendChild(o);
+    }
+    let v = def;
     try {
       const saved = localStorage.getItem(`redflipper.${id}`);
-      if (saved) el.value = saved;
+      if (saved && choices.some(([k]) => k === saved)) v = saved;
       else if (id === "applyTo") {   // carried over from the 2.6.5 checkboxes
-        if (localStorage.getItem("redflipper.optSource") === "1") el.value = "source";
-        else if (localStorage.getItem("redflipper.optMotion") === "1") el.value = "motion";
+        if (localStorage.getItem("redflipper.optSource") === "1") v = "source";
+        else if (localStorage.getItem("redflipper.optMotion") === "1") v = "motion";
       }
     } catch (e) { /* default */ }
-    const btn = el.querySelector(".ddBtn"), text = el.querySelector(".ddText"), menu = el.querySelector(".ddMenu");
-    menuEls[id] = menu;
-    const items = choices.map(([value, label]) => {
-      const item = document.createElement("div");
-      item.className = "ddItem";
-      item.textContent = label;
-      item.addEventListener("click", (e) => {
-        if (e && e.stopPropagation) e.stopPropagation();
-        // the menu goes away only once Premiere has finished with this click: taking the clicked
-        // item away inside its own click seems to leave the mouse stuck to it (2.6.15)
-        const locked = busy;
-        setTimeout(() => {
-          closeMenus();
-          releaseMouse();
-          if (locked || busy) return;
-          el.value = value;
-          changed();
-        }, 0);
-      });
-      menu.appendChild(item);
-      return [value, item];
-    });
-    const render = () => {
-      const v = sub(id);
-      text.textContent = choices.find(([k]) => k === v)[1];
-      for (const [k, item] of items) item.className = `ddItem${k === v ? " chosen" : ""}`;
-    };
-    const changed = () => {
-      render();
+    el.value = v;
+    try { el.selectedIndex = choices.findIndex(([k]) => k === v); } catch (e) { /* value is enough */ }
+    el.addEventListener("change", () => {
       try { localStorage.setItem(`redflipper.${id}`, sub(id)); } catch (e) { /* not remembered */ }
       optionsChanged();
-    };
-    el.addEventListener("change", changed);
-    btn.addEventListener("click", (e) => {
-      if (e && e.stopPropagation) e.stopPropagation();
-      const open = menu.classList.contains("hidden");
-      closeMenus();
-      if (open && !busy) openMenu(id);
     });
-    render();
   }
-  closeMenus();
-  try { document.addEventListener("click", closeMenus); } catch (e) { /* menus close on their own button */ }
 }
 
 function loadOptions() {
