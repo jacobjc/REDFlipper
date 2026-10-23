@@ -276,7 +276,23 @@ const SUBOPTS = {
   stabFraming: ["fill", [["fill", "Scale to Fill Frame"], ["none", "No Change"]]],
 };
 const sub = (id) => { const v = $(id).value; return SUBOPTS[id][1].some(([k]) => k === v) ? v : SUBOPTS[id][0]; };
-const closeMenus = () => { for (const id of Object.keys(SUBOPTS)) $(id).querySelector(".ddMenu").classList.add("hidden"); };
+// A closed menu could keep catching the mouse in UXP (hand cursor, clicks swallowed until Advanced was
+// closed and opened again, 2.6.12), so closing one hides and re-shows the Advanced box the same way.
+function closeMenus() {
+  let wasOpen = false;
+  for (const id of Object.keys(SUBOPTS)) {
+    const menu = $(id).querySelector(".ddMenu");
+    if (!menu.classList.contains("hidden")) wasOpen = true;
+    menu.classList.add("hidden");
+  }
+  if (wasOpen) refreshAdvanced();
+}
+function refreshAdvanced() {
+  const box = $("advanced");
+  if (box.classList.contains("hidden")) return;
+  box.style.display = "none";
+  setTimeout(() => { box.style.display = ""; }, 0);
+}
 
 // While a run is going the settings can't change (the run reads them as it goes). A dropdown opened
 // mid-run used to stay stuck open over the panel, showing a hand cursor and swallowing clicks (2.6.9).
@@ -304,7 +320,7 @@ function loadSubOptions() {
       item.textContent = label;
       item.addEventListener("click", (e) => {
         if (e && e.stopPropagation) e.stopPropagation();
-        menu.classList.add("hidden");
+        closeMenus();
         if (busy) return;
         el.value = value;
         changed();

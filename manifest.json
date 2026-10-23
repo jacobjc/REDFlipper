@@ -1,7 +1,7 @@
 {
   "id": "com.jacobchristiansen.redflip",
   "name": "REDFlipper",
-  "version": "2.6.12",
+  "version": "2.6.13",
   "main": "index.html",
   "host": {
     "app": "premierepro",
