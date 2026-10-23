@@ -20,15 +20,6 @@
     .row { display: flex; flex-wrap: wrap; margin: 2px 0; align-items: center; }
     .row > * { margin: 2px 6px 2px 0; }
     button { padding: 4px 10px; }
-    /* Analyze & Flip is drawn by the panel (2.6.30): UXP's native button can't colour one word,
-       and Jacob wanted "Stabilize" purple there too. Matched to Premiere's native buttons. */
-    .btn { display: flex; align-items: center; justify-content: center; height: 32px; padding: 0 16px;
-           border-radius: 16px; background: #6a6a6a; color: #d0d0d0; font-size: 13px; font-weight: bold;
-           cursor: pointer; box-sizing: border-box; }
-    .btn:hover { background: #787878; color: #f0f0f0; }
-    .btn .stab { color: #d2b8ff; }
-    .btn.disabled, .btn.disabled:hover { background: #303030; color: #6e6e6e; cursor: default; }
-    .btn.disabled .stab { color: #6e6e6e; }
     /* toggle switch: a track with a knob, slid right when .on */
     #scopeSwitch { display: flex; align-items: center; cursor: pointer; }
     #switchTrack { width: 30px; height: 16px; border-radius: 8px; background: #555; margin-right: 8px;
@@ -104,7 +95,7 @@
     <span id="scopeHint">(switch off for the whole sequence)</span>
   </div>
   <div class="row">
-    <div class="btn" id="flip">Analyze &amp; Flip</div>
+    <button id="flip">Analyze &amp; Flip</button>
     <button id="remove">Undo</button>
     <button id="stop" disabled>Stop</button>
     <button id="advancedToggle">Advanced ▸</button>
