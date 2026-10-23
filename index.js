@@ -329,6 +329,7 @@ function optionsChanged() {
   showOverrides();
   $("flip").textContent = "";
   appendColoured($("flip"), runLabel());
+  if (opt("optStabilize")) $("flip").classList.add("stabMode"); else $("flip").classList.remove("stabMode");
   $("undoInfo").textContent = "";
   appendColoured($("undoInfo"), undoText());
   refreshBackupInfo();

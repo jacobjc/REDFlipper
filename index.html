@@ -20,6 +20,8 @@
     .row { display: flex; flex-wrap: wrap; margin: 2px 0; align-items: center; }
     .row > * { margin: 2px 6px 2px 0; }
     button { padding: 4px 10px; }
+    /* the native button can't colour one word, so the whole label is purple while stabilizing (2.6.30) */
+    #flip.stabMode { color: #b48cff; }
     /* toggle switch: a track with a knob, slid right when .on */
     #scopeSwitch { display: flex; align-items: center; cursor: pointer; }
     #switchTrack { width: 30px; height: 16px; border-radius: 8px; background: #555; margin-right: 8px;
