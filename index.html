@@ -68,7 +68,14 @@
     #backupInfo { color: #999; margin-top: 10px; overflow-wrap: anywhere; word-break: break-all; }
     .link { text-decoration: underline; cursor: pointer; color: #b8d4ff; }
     #undoInfo { color: #999; border-top: 1px solid #444; margin-top: 6px; padding-top: 5px; white-space: pre-line; }
-    #status { color: var(--uxp-host-text-color-secondary, #aaa); min-height: 16px; margin: 4px 0 4px; }
+    #statusRow { display: flex; align-items: center; margin: 4px 0; }
+    #status { flex: 1 1 auto; color: var(--uxp-host-text-color-secondary, #aaa); min-height: 16px; }
+    /* log tools: copy the log, or swap it for plain text that can be selected (UXP can't select text in a div) */
+    #logTools { flex-shrink: 0; font-size: 11px; }
+    .tool { color: #999; cursor: pointer; margin-left: 12px; text-decoration: underline; }
+    .tool:hover { color: #ddd; }
+    #logText { border: 1px solid #555; border-radius: 4px; padding: 6px 8px; flex: 1 1 0px; min-height: 120px;
+               font-family: Consolas, monospace; font-size: 11px; background: transparent; color: #ddd; resize: none; }
     #progressWrap { height: 4px; background: #3a3a3a; border-radius: 2px; overflow: hidden; margin: 0 0 8px; }
     #progressBar { height: 4px; width: 0%; background: #2d8ceb; }
     .hidden { display: none; }
@@ -128,8 +135,10 @@
     <div id="undoInfo"></div>
     <div id="backupInfo"></div>
   </div>
-  <div id="status"></div>
+  <div id="statusRow"><div id="status"></div>
+    <div id="logTools"><span id="logSelect" class="tool">Select Text</span><span id="logCopy" class="tool">Copy Log</span></div></div>
   <div id="progressWrap" class="hidden"><div id="progressBar"></div></div>
   <div id="log"></div>
+  <textarea id="logText" class="hidden" readonly></textarea>
 </body>
 </html>

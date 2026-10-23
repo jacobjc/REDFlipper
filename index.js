@@ -41,6 +41,12 @@ const TILT_MIN_YZ = 0.1;         // tilt correction of the gyro until the lens i
 const SHAKEN_G = 0.08;           // total acceleration this far from 1 g: gravity's direction isn't trusted
 const FUSE_OUTLIER_DEG = 2;      // gravity readings this far from the gyro's track are left out
 const KEY_BATCH = 300;           // keyframes per Premiere step while applying (Stop is checked in between)
+// Breathing room for Premiere while stabilizing (2.6.8: 100+ clips at once could stall it): a short
+// rest after every batch of keyframes, a longer one between clips, and one between clips while the
+// stabilization is worked out, so Premiere can redraw and handle clicks (Stop included).
+const BATCH_REST_MS = 15;
+const CLIP_REST_MS = 60;
+const rest = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let busy = false;
 let stopRequested = false;
@@ -103,12 +109,59 @@ function log(msg, cls, link) {
   if (link) d.appendChild(pathLink(link.path, link.folder));
   if (cls) d.className = cls;
   box.appendChild(d);
-  if (logSticky) box.scrollTop = box.scrollHeight;
+  if (logPlain) $("logText").value = logAsText();
+  if (logSticky) logToBottom();
+}
+
+// Scrolls the log to the end, now and again once the new lines are laid out: right after an append
+// UXP can still report the old height, which left the log short of the end (and, as that looked
+// like the editor scrolling up, stopped it following; seen after a Stop, 2.6.8).
+let logScrollTimer = null;
+function logToBottom() {
+  const box = $("log");
+  box.scrollTop = box.scrollHeight;
+  if (logScrollTimer) return;
+  logScrollTimer = setTimeout(() => {
+    logScrollTimer = null;
+    if (logSticky) box.scrollTop = box.scrollHeight;
+  }, 30);
+}
+
+// Copy Log / Select Text. Text in a div can't be selected in UXP, so Select Text swaps the log for
+// the same lines in a read-only text box (selectable, Ctrl+C), and back again.
+let logPlain = false;
+const logAsText = () => Array.from($("log").childNodes, (d) => d.textContent).join("\n");
+async function copyText(text) {
+  try {
+    if (navigator.clipboard.setContent) await navigator.clipboard.setContent({ "text/plain": text });
+    else await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) { return false; }
+}
+async function copyLog() {
+  const box = $("logText");
+  let text = logAsText(), what = "the log";
+  if (logPlain && box.selectionEnd > box.selectionStart) { text = box.value.slice(box.selectionStart, box.selectionEnd); what = "the selected text"; }
+  status(await copyText(text) ? `Copied ${what} to the clipboard.` : "Couldn't copy to the clipboard.");
+}
+function toggleLogPlain() {
+  logPlain = !logPlain;
+  const box = $("logText");
+  if (logPlain) {
+    box.value = logAsText();
+    $("log").classList.add("hidden"); box.classList.remove("hidden");
+    box.scrollTop = box.scrollHeight;
+  } else {
+    box.classList.add("hidden"); $("log").classList.remove("hidden");
+    if (logSticky) logToBottom();
+  }
+  $("logSelect").textContent = logPlain ? "Back to Log" : "Select Text";
 }
 
 // A new run jumps the log and the panel to the bottom, and the log sticks there again.
 function startRun(label) {
   logSticky = true;
+  if (logPlain) toggleLogPlain();
   if ($("log").childNodes.length) log(" ");
   log(`── ${label} · ${new Date().toLocaleTimeString()} ──`, "dim");
 }
@@ -1397,8 +1450,17 @@ async function analyseAndFlip() {
 
   // one entry per source clip, holding its timeline clips in scope and its own (Source) effects
   const sources = new Map();
-  for (const t of c.targets) {
+  for (const [i, t] of c.targets.entries()) {
     checkStop();
+    if (stabilize) {
+      const cached = t.result.stabs && t.result.stabs[sub("stabMethod")];
+      if (!cached) {
+        status(`Working out stabilization ${i + 1} / ${c.targets.length}: ${t.name}`);
+        progress(i / c.targets.length);
+        await rest(CLIP_REST_MS);
+        checkStop();
+      }
+    }
     t.plan = stabilize ? stabPlan(t.result, sub("stabMethod")) : t.result.plan;
     if (!sources.has(t.path)) {
       if (stabilize) gyroNote(t.name, t.plan.gyro);
@@ -1556,7 +1618,7 @@ async function analyseAndFlip() {
     t.scale = scaleOf(comp);
     return { chain, comp };
   };
-  const pause = () => new Promise((r) => setTimeout(r, 0));
+  const pause = () => rest(stabilize ? BATCH_REST_MS : 0);
   // count items in batches; false if Premiere refused one, "stop" if Stop was pressed in between
   const inBatches = async (t, label, count, makeBatch) => {
     for (let i = 0; i < count; i += KEY_BATCH) {
@@ -1574,7 +1636,10 @@ async function analyseAndFlip() {
   let stopped = false;
   for (const [n, t] of todo.entries()) {
     if (stopRequested) { stopped = true; break; }
-    if (todo.length > 1) status(`Applying rotation… ${n + 1}/${todo.length} ${t.name}`);
+    if (todo.length > 1) {
+      status(`Applying ${stabilize ? "stabilization" : "rotation"}… ${n + 1}/${todo.length} ${t.name}`);
+      progress(n / todo.length);
+    }
     let r;
     try {
       await refetch(t);
@@ -1600,7 +1665,7 @@ async function analyseAndFlip() {
     if (r === "stop") { stopped = true; break; }
     if (!r) { note([t], `add keyframes${lastTxError ? ` (${lastTxError})` : ""}`); continue; }
     finished.push(t);
-    if (stabilize && n + 1 < todo.length) await pause();   // lets a Stop click through between clips
+    if (stabilize && n + 1 < todo.length) await rest(CLIP_REST_MS);   // lets Premiere catch up, and a Stop click through
   }
 
   // Stopped: the clips not finished (including the one in progress) get no REDFlipper rotation at all,
@@ -1629,10 +1694,18 @@ async function analyseAndFlip() {
   // rotation shows: one steady zoom for the part of the clip that's used, and since 2.6.7 a further
   // keyframed zoom through flips, eased in and out. Otherwise REDFlipper's own Transform goes back to
   // 100%. Motion mode scales Motion > Scale from its value before and remembers that value.
-  let scaleStopped = false;
+  let scaleStopped = false, unscaled = 0;
   if (mode !== "motion" || fill || units.some((u) => (u.targets || [u]).some((t) => hasMotionBase(t)))) {
-    for (const u of ready) {
-      if (bad.has(u)) continue;
+    const toScale = ready.filter((u) => !bad.has(u));
+    for (const [n, u] of toScale.entries()) {
+      if (stabilize) {
+        if (stopRequested) { scaleStopped = true; unscaled = toScale.length - n; break; }
+        if (toScale.length > 1) {
+          status(`Scaling to fill… ${n + 1}/${toScale.length} ${u.name}`);
+          progress(n / toScale.length);
+        }
+        if (n) await rest(CLIP_REST_MS);
+      }
       let want = 1, info = null, ramp = null;
       if (fill && u.plan.kind === "stab") {
         const fr = (tt) => Math.round(Number(ticksOf(tt)) * u.result.fpsNum / (u.result.fpsDen * Number(TICKS_PER_SEC)));
@@ -1704,8 +1777,10 @@ async function analyseAndFlip() {
       } catch (e) { log(`${u.name}: couldn't set its Scale (${e && e.message ? e.message : e})`, "warn"); }
     }
   }
+  progress(null);
   if (scaleStopped) {
-    throw new Error("Stopped. The clips are stabilized; some have the steady zoom only (no further zoom through flips). Run again to finish them.");
+    throw new Error(`Stopped. The clips are stabilized, but ${unscaled ? `${unscaled} clip(s) weren't scaled to fill yet` :
+      "some have the steady zoom only (no further zoom through flips)"}. Run again to finish them.`);
   }
 
   // 6. keyframe test on the first mid-take clip (stabilizing: values at a few keys, and halfway between two)
@@ -1833,10 +1908,16 @@ async function removeRotation() {
 
 loadSubOptions();
 loadOptions();
+// Only the editor scrolling up lets go of the end (the log growing never does); back at the end, it follows again.
+let logLastTop = 0;
 $("log").addEventListener("scroll", () => {
-  const box = $("log");
-  logSticky = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+  const box = $("log"), top = box.scrollTop;
+  if (box.scrollHeight - top - box.clientHeight < 24) logSticky = true;
+  else if (top < logLastTop - 1) logSticky = false;
+  logLastTop = top;
 });
+$("logCopy").addEventListener("click", () => copyLog());
+$("logSelect").addEventListener("click", () => toggleLogPlain());
 initLogo();
 $("flip").addEventListener("click", () => { if (!busy) animateLogo(opt("optStabilize")); return guarded(analyseAndFlip); });
 $("remove").addEventListener("click", () => guarded(removeRotation));
