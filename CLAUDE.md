@@ -15,7 +15,7 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
 - `index.html` — panel UI: icon + title/version + "by Jacob J. Christiansen"; "Selected clips only" toggle
   switch (a styled div, `.on` class = selected only; off = whole sequence); Analyze & Flip, Undo (= Remove Rotation, renamed 2.4.7),
   Stop, Advanced, all in one row; Advanced reveals five option checkboxes (styled divs `.opt`, `.on` = checked, saved in
-  localStorage as `redflipper.<id>`; each label's warning is on its own line below it): in order `optCuts`, `optStabilize`, `optMotion`, `optSource`, `optForceFbf`, `optAutoSave`; `showOverrides()` greys out
+  localStorage as `redflipper.<id>`; each label's warning is on its own line below it): in order `optCuts`, `optMotion`, `optSource`, `optStabilize` (3rd from bottom since 2.6.3), `optForceFbf`, `optAutoSave`; `showOverrides()` greys out
   overridden ones (Source → Motion and Cuts off; Stabilize → Cuts off; `forcedState()`), showing the forced state in a
   grey box (no tick when forced off) and ignoring clicks; the saved `.on` state returns when the override ends. Only
   colours change when greyed (no tags since 2.5.1: Jacob found the layout shift jarring); status line, per-clip
@@ -166,6 +166,10 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   (axis direction of +Y unconfirmed; 2.5.4 tried -1, reverted in 2.5.5 at Jacob's request). Confirm on a tilted shot.
 - Undo in Motion mode with Stabilize on treats any keyframed Motion rotation as REDFlipper's (`isMotionFlip(..., true)`).
 - Keyframe interpolation/stray matching walks sorted lists (thousands of keys per clip).
+- Premiere objects go stale after an edit plus a host event-loop turn ("The script object is no longer valid",
+  Jacob's 2.6.2 run). Since 2.6.3 the apply loop re-fetches the Rotation param (`refetch`: chain → component at the
+  index recorded by `scanChain`) after every pause, and builds keyframes/actions inside each batch's transaction.
+  The mock harness models this (objects/actions made before an edit + macrotask throw); 2.6.1 passes under it.
 - Stop (2.6.2): `checkStop()` between steps before the first edit ("Stopped. Nothing was changed."; after the backup
   says the backup was saved). Keyframes are applied clip by clip in batches of `KEY_BATCH` (300) per transaction,
   with a `setTimeout(0)` pause after each so the Stop click is handled (one huge transaction blocked the UI). On Stop,
