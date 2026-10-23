@@ -2051,14 +2051,14 @@ $("logClear").addEventListener("click", () => {
   $("welcome").classList.remove("hidden");
   if (welcomeTimer) clearInterval(welcomeTimer);
   showWelcome();
-  setTimeout(() => animateWelcome(false), 100);   // and turns once, as on opening
+  setTimeout(() => animateWelcome(opt("optStabilize")), 100);   // and turns once, as on opening
   status("");
 });
 $("logSelect").addEventListener("click", () => toggleLogPlain());
 initLogo();
 showWelcome();
 // the welcome logo turns once by itself when the panel opens (2.6.24)
-setTimeout(() => { if (!$("welcome").classList.contains("hidden")) animateWelcome(false); }, 500);
+setTimeout(() => { if (!$("welcome").classList.contains("hidden")) animateWelcome(opt("optStabilize")); }, 500);
 $("flip").addEventListener("click", () => { if (!busy) animateLogo(opt("optStabilize")); return guarded(analyseAndFlip); });
 $("remove").addEventListener("click", () => guarded(removeRotation));
 $("welcome").addEventListener("click", () => animateWelcome(opt("optStabilize")));
