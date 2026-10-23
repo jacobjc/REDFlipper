@@ -1665,7 +1665,9 @@ async function analyseAndFlip() {
         return t.rotation.createAddKeyframeAction(kf);
       }));
       if (r === true) {
-        const plan = await interpPlan(t), mode2 = interpOf(t);
+        // Stabilizing keys every frame, so every frame shows its keyed value whatever the
+        // interpolation: only stray keys are removed, which skips thousands of steps per clip (2.6.11).
+        const plan = (await interpPlan(t)).filter((e) => !(e.ours && t.plan.kind === "stab")), mode2 = interpOf(t);
         r = await inBatches(t, "set keyframe interpolation", plan.length, (a, b) => plan.slice(a, b).map((e) => (e.ours
           ? t.rotation.createSetInterpolationAtKeyframeAction(tickTime(e.ticks), mode2, false)
           : t.rotation.createRemoveKeyframeAction(tickTime(e.ticks), false))));
