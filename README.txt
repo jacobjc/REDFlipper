@@ -2,7 +2,9 @@ REDFlipper - Premiere Pro panel
 ===============================
 
 INSTALL / UPDATE
-- Download REDFlipper.ccx and double-click it. Creative Cloud installs the plugin
+- Download REDFlipper.ccx from the latest release:
+  https://github.com/jacobjc/REDFlipper/releases/latest
+  Double-click it and Creative Cloud installs the plugin
   (close Premiere first when updating).
 - Then in Premiere: Window > UXP Plugins > REDFlipper.
 
