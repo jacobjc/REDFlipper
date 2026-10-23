@@ -65,6 +65,10 @@
     .ddItem:hover { background: #2d8ceb; color: #fff; }
     .ddItem.chosen { color: #6cb4ff; }
     .ddItem.chosen:hover { color: #fff; }
+    /* during a run: settings can't change */
+    #advanced.locked .ddBtn { cursor: default; color: #888; border-color: #444; }
+    #advanced.locked .ddBtn:hover { border-color: #444; }
+    #advanced.locked .opt { cursor: default; }
     #backupInfo { color: #999; margin-top: 10px; overflow-wrap: anywhere; word-break: break-all; }
     .link { text-decoration: underline; cursor: pointer; color: #b8d4ff; }
     #undoInfo { color: #999; border-top: 1px solid #444; margin-top: 6px; padding-top: 5px; white-space: pre-line; }

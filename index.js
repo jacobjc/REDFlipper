@@ -277,6 +277,13 @@ const SUBOPTS = {
 const sub = (id) => { const v = $(id).value; return SUBOPTS[id][1].some(([k]) => k === v) ? v : SUBOPTS[id][0]; };
 const closeMenus = () => { for (const id of Object.keys(SUBOPTS)) $(id).querySelector(".ddMenu").classList.add("hidden"); };
 
+// While a run is going the settings can't change (the run reads them as it goes). A dropdown opened
+// mid-run used to stay stuck open over the panel, showing a hand cursor and swallowing clicks (2.6.9).
+function lockSettings(on) {
+  closeMenus();
+  if (on) $("advanced").classList.add("locked"); else $("advanced").classList.remove("locked");
+}
+
 function loadSubOptions() {
   for (const id of Object.keys(SUBOPTS)) {
     const el = $(id), [def, choices] = SUBOPTS[id];
@@ -296,8 +303,9 @@ function loadSubOptions() {
       item.textContent = label;
       item.addEventListener("click", (e) => {
         if (e && e.stopPropagation) e.stopPropagation();
-        el.value = value;
         menu.classList.add("hidden");
+        if (busy) return;
+        el.value = value;
         changed();
       });
       menu.appendChild(item);
@@ -318,7 +326,7 @@ function loadSubOptions() {
       if (e && e.stopPropagation) e.stopPropagation();
       const open = menu.classList.contains("hidden");
       closeMenus();
-      if (open) menu.classList.remove("hidden");
+      if (open && !busy) menu.classList.remove("hidden");
     });
     render();
   }
@@ -388,6 +396,7 @@ async function guarded(fn) {
   if (busy) return;
   busy = true;
   stopRequested = false;
+  lockSettings(true);
   for (const id of ["flip", "remove"]) $(id).disabled = true;
   $("stop").disabled = false;
   try { await fn(); }
@@ -398,6 +407,7 @@ async function guarded(fn) {
   }
   finally {
     busy = false;
+    lockSettings(false);
     status("");
     progress(null);
     for (const id of ["flip", "remove"]) $(id).disabled = false;
