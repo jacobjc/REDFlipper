@@ -6,15 +6,19 @@
     html, body { height: 100%; }
     body { color: var(--uxp-host-text-color, #ddd); font-size: 12px; padding: 10px 12px; margin: 0;
            display: flex; flex-direction: column; box-sizing: border-box; overflow-y: auto; }
-    #header { display: flex; align-items: center; margin: 0 0 8px; }
-    #logo { width: 32px; height: 32px; margin-right: 8px; }
+    #header { display: flex; align-items: center; margin: 0 0 4px; }
+    #logoBox { position: relative; width: 32px; height: 32px; margin-right: 8px; flex-shrink: 0; cursor: pointer; }
+    #logo { position: absolute; left: 0; top: 0; width: 32px; height: 32px; }
+    /* animation frames (icons/spin, pre-rotated every 3°): larger than the logo so the corners
+       never clip while it turns, centred on it */
+    .spinFrame { position: absolute; left: -5px; top: -5px; width: 42px; height: 42px; }
     h1 { font-size: 14px; margin: 0; }
     #version { font-size: 10px; font-weight: normal; color: #777; margin-left: 6px; }
     #author { font-size: 10px; color: #777; margin-top: 2px; }
     /* keep every block at its natural height; only the log stretches or shrinks */
     body > * { flex-shrink: 0; }
-    .row { display: flex; flex-wrap: wrap; margin: 4px 0; align-items: center; }
-    .row > * { margin: 4px 6px 4px 0; }
+    .row { display: flex; flex-wrap: wrap; margin: 2px 0; align-items: center; }
+    .row > * { margin: 2px 6px 2px 0; }
     button { padding: 4px 10px; }
     /* toggle switch: a track with a knob, slid right when .on */
     #scopeSwitch { display: flex; align-items: center; cursor: pointer; }
@@ -24,19 +28,60 @@
     #scopeSwitch.on #switchTrack { background: #2d8ceb; justify-content: flex-end; }
     #scopeHint { color: #999; margin-left: 6px; }
     #advancedToggle { font-size: 11px; }
-    #advanced { border: 1px solid #555; border-radius: 4px; padding: 6px 8px; margin: 0 0 8px; color: #999; }
-    #status { color: var(--uxp-host-text-color-secondary, #aaa); min-height: 16px; margin: 4px 0 4px; }
+    #advanced { border: 1px solid #555; border-radius: 4px; padding: 4px 8px; margin: 0 0 8px; }
+    /* option: Premiere's checkbox and its label (the label toggles it too) */
+    .opt { display: flex; align-items: flex-start; cursor: pointer; margin: 5px 0; }
+    .opt .box { margin: 0 8px 0 0; flex-shrink: 0; }
+    .optText { flex: 1 1 auto; }
+    /* greyed out when another option overrides it: only colours change, so nothing moves */
+    .opt.overridden { cursor: default; }
+    .opt.overridden .optText, .opt.overridden .fbf, .opt.overridden .stab { color: #666; }
+    /* warnings sit on their own line under each option's label, only while it's ticked (even when
+       forced on, and then still orange) */
+    .optText .warning { display: none; }
+    .opt.shown .optText .warning { display: block; }
+    /* Lock to Horizon's own settings, under its label while it's ticked */
+    #stabOptions { margin: 0 0 0 20px; }
+    .subopt { display: flex; flex-wrap: wrap; align-items: center; min-height: 22px; row-gap: 2px; }   /* a narrow panel puts the dropdown on the next line */
+    /* each dropdown sits right after its label, one space on */
+    .subLabel { flex-shrink: 0; color: #ccc; margin-right: 4px; }
+    #applyRow { margin: 4px 0 0; }
+    .applyLabel { flex-shrink: 0; margin-right: 4px; }
+    .applyWarn { margin: 1px 0 0; }
+    /* Premiere's own dropdowns, kept as small as it allows */
+    #advanced select { height: 22px; font-size: 11px; min-width: 210px; max-width: 100%; margin: 0; padding: 0 4px; }
+    #advanced.locked .opt { cursor: default; }
+    #backupInfo { color: #999; margin-top: 10px; overflow-wrap: anywhere; word-break: break-all; }
+    .link { text-decoration: underline; cursor: pointer; color: #b8d4ff; }
+    #undoInfo { color: #999; border-top: 1px solid #444; margin-top: 6px; padding-top: 5px; white-space: pre-line; }
+    #statusRow { display: flex; align-items: center; margin: 4px 0; }
+    #status { flex: 1 1 auto; color: var(--uxp-host-text-color-secondary, #aaa); min-height: 16px; }
+    /* log tools: copy the log, or swap it for plain text that can be selected (UXP can't select text in a div) */
+    #logTools { flex-shrink: 0; font-size: 11px; }
+    .tool { color: #999; cursor: pointer; margin-left: 12px; text-decoration: underline; }
+    .tool:hover { color: #ddd; }
+    /* the empty log: grey ASCII welcome, centred */
+    #welcome { border: 1px solid #555; border-radius: 4px; flex: 1 1 0px; min-height: 120px; margin: 0; overflow: hidden;
+               display: flex; align-items: center; justify-content: center; font-family: Consolas, monospace;
+               font-size: 8px; line-height: 9px; color: #666; white-space: pre; }
+    #welcome.hidden { display: none; }
+    #logText { border: 1px solid #555; border-radius: 4px; padding: 6px 8px; flex: 1 1 0px; min-height: 120px;
+               font-family: Consolas, monospace; font-size: 11px; background: transparent; color: #ddd; resize: none; }
     #progressWrap { height: 4px; background: #3a3a3a; border-radius: 2px; overflow: hidden; margin: 0 0 8px; }
     #progressBar { height: 4px; width: 0%; background: #2d8ceb; }
     .hidden { display: none; }
-    #log { border: 1px solid #555; border-radius: 4px; padding: 6px 8px; flex: 1 1 auto; min-height: 120px;
-           overflow-y: scroll; font-family: Consolas, monospace; font-size: 11px; white-space: pre-wrap; }
-    .err { color: #ff8080; } .ok { color: #8fdc8f; } .warn { color: #f0c060; } .dim { color: #999; }
+    /* the log fills the remaining height and scrolls; lines are kept between runs */
+    #log { border: 1px solid #555; border-radius: 4px; padding: 6px 8px; flex: 1 1 0px; min-height: 120px;
+           overflow-y: scroll; font-family: Consolas, monospace; font-size: 11px; white-space: pre-wrap;
+           user-select: text; }
+    .err { color: #ff8080; } .ok { color: #8fdc8f; } .warn { color: #ff9933; } .dim { color: #999; }
+    /* analysis methods are always blue / yellow, warnings orange */
+    .fast { color: #4da3ff; } .fbf { color: #f5d742; } .stab { color: #b48cff; } .warning { color: #ff9933; }
   </style>
 </head>
 <body>
   <div id="header">
-    <img id="logo" src="icons/header.png">
+    <div id="logoBox"><img id="logo" src="icons/header.png" width="32" height="32"></div>
     <div>
       <h1>REDFlipper<span id="version"></span></h1>
       <div id="author">by Jacob J. Christiansen</div>
@@ -51,15 +96,38 @@
   </div>
   <div class="row">
     <button id="flip">Analyze &amp; Flip</button>
-    <button id="remove">Remove Rotation</button>
-  </div>
-  <div class="row">
+    <button id="remove">Undo</button>
     <button id="stop" disabled>Stop</button>
     <button id="advancedToggle">Advanced ▸</button>
   </div>
-  <div id="advanced" class="hidden">More options coming in a later version.</div>
-  <div id="status"></div>
+  <div id="advanced" class="hidden">
+    <div class="subopt" id="applyRow"><span class="applyLabel">Apply Rotation to:</span>
+      <select id="applyTo"></select></div>
+    <div id="applyWarn_motion" class="applyWarn warning hidden">(Warning: Will overwrite existing motion keyframes.)</div>
+    <div id="applyWarn_source" class="applyWarn warning hidden">(Warning: affects all instances of this clip in project. Will affect entire clip length.)</div>
+    <div class="opt" id="optCuts"><input type="checkbox" class="box">
+      <div class="optText">Add Cut at each Flip Point</div></div>
+    <div class="opt" id="optStabilize"><input type="checkbox" class="box">
+      <div class="optText">Lock to Horizon (<span class="stab">Stabilize</span> Rotation)</div></div>
+    <div id="stabOptions" class="hidden">
+      <div class="subopt"><span class="subLabel">Stabilizing Method:</span>
+        <select id="stabMethod"></select></div>
+      <div class="subopt"><span class="subLabel">Framing:</span>
+        <select id="stabFraming"></select></div>
+    </div>
+    <div class="opt" id="optForceFbf"><input type="checkbox" class="box">
+      <div class="optText">Force <span class="fbf">Frame-by-Frame Analysis</span>
+        <span class="warning">(Warning: SLOW, doesn't improve quality)</span></div></div>
+    <div class="opt" id="optAutoSave"><input type="checkbox" class="box">
+      <div class="optText">Auto-Backup Project <span class="dim">(Recommended)</span></div></div>
+    <div id="undoInfo"></div>
+    <div id="backupInfo"></div>
+  </div>
+  <div id="statusRow"><div id="status"></div>
+    <div id="logTools"><span id="logSelect" class="tool">Select Text</span><span id="logCopy" class="tool">Copy Log</span><span id="logClear" class="tool">Clear Log</span></div></div>
   <div id="progressWrap" class="hidden"><div id="progressBar"></div></div>
-  <div id="log"></div>
+  <div id="log" class="hidden"></div>
+  <pre id="welcome"></pre>
+  <textarea id="logText" class="hidden" readonly></textarea>
 </body>
 </html>
