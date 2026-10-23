@@ -329,6 +329,7 @@ function optionsChanged() {
   showOverrides();
   $("flip").textContent = "";
   appendColoured($("flip"), runLabel());
+  if (opt("optStabilize")) $("flip").classList.add("stabMode"); else $("flip").classList.remove("stabMode");
   $("undoInfo").textContent = "";
   appendColoured($("undoInfo"), undoText());
   refreshBackupInfo();
@@ -468,7 +469,6 @@ async function guarded(fn) {
   stopRequested = false;
   lockSettings(true);
   for (const id of ["flip", "remove"]) $(id).disabled = true;
-  $("flip").classList.add("disabled");
   $("stop").disabled = false;
   try { await fn(); }
   catch (e) {
@@ -485,7 +485,6 @@ async function guarded(fn) {
     status("");
     progress(null);
     for (const id of ["flip", "remove"]) $(id).disabled = false;
-    $("flip").classList.remove("disabled");
     $("stop").disabled = true;
     refreshBackupInfo();
   }
