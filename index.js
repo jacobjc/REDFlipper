@@ -1052,6 +1052,22 @@ function motionBase(t, now) {
   return null;
 }
 const hasMotionBase = (t) => motionBase(t, 1) !== null;
+// Motion > Rotation keyframed by a Motion-mode stabilization is remembered per clip too (2.6.21), so
+// a later run in another mode (or a flip run) finds and clears it instead of rotating twice.
+const motionStabKey = (t) => `redflipper.motionStab.${t.path}|${ticksOf(t.inPoint)}`;
+function hasMotionStab(t) { try { return localStorage.getItem(motionStabKey(t)) === "1"; } catch (e) { return false; } }
+function markMotionStab(t, on) {
+  try { if (on) localStorage.setItem(motionStabKey(t), "1"); else localStorage.removeItem(motionStabKey(t)); } catch (e) { /* not remembered */ }
+}
+// Putting Motion > Scale back to its value before Scale to Fill: actions for a clip's scan (none if
+// REDFlipper didn't scale it)
+function motionScaleBackActions(t) {
+  const base = motionBase(t);
+  if (base === null || t.scan.motionIndex === undefined) return [];
+  const scale = scaleOf(t.scan.chain.getComponentAtIndex(t.scan.motionIndex));
+  if (!scale) return [];
+  return [...(scale.isTimeVarying() ? [scale.createSetTimeVaryingAction(false)] : []), scale.createSetValueAction(scale.createKeyframe(base), true)];
+}
 function storeMotionBase(t, base) {
   try {
     localStorage.removeItem(motionScaleKey(t));
@@ -1533,18 +1549,18 @@ async function analyseAndFlip() {
       if (kind === "upright" && s.scan.ours) { stripSource.push(s); s.targets.forEach((t) => cleaned.add(t)); }
       for (const t of s.targets) {
         if (t.scan.ours) { stripTransform.push(t); if (kind === "upright") cleaned.add(t); }
-        if (await isMotionFlip(t.scan.motionRotation, t.inPoint)) { resetMotion.push(t); if (kind === "upright") cleaned.add(t); }
+        if (await isMotionFlip(t.scan.motionRotation, t.inPoint, hasMotionStab(t))) { resetMotion.push(t); if (kind === "upright") cleaned.add(t); }
       }
       if (kind !== "upright") units.push(s);
     } else if (rotates) {
       if (s.scan.ours) {
-        log(`${s.name}: already flipped by a Source Transform (all instances). Skipped. ` +
-            "Use “Undo” with “Apply Rotation to Source Clip” checked first to flip its timeline clips instead.", "warn");
+        log(`${s.name}: already rotated by a REDFlipper Source Transform (all instances). Skipped. ` +
+            "Use “Undo” with Apply Rotation to: Source Clip effect first to work on its timeline clips instead.", "warn");
         continue;
       }
       for (const t of s.targets) {
         units.push(t);
-        if (mode === "transform" && await isMotionFlip(t.scan.motionRotation, t.inPoint)) resetMotion.push(t);
+        if (mode === "transform" && await isMotionFlip(t.scan.motionRotation, t.inPoint, hasMotionStab(t))) resetMotion.push(t);
         if (mode === "motion" && t.scan.ours) stripTransform.push(t);
       }
     }
@@ -1600,6 +1616,13 @@ async function analyseAndFlip() {
   const rm2 = runPhase(project, "reset Motion rotation", resetMotion.filter((t) => !rm1.includes(t)),
     (t) => [t.scan.motionRotation.createSetValueAction(t.scan.motionRotation.createKeyframe(0), true)]);
   [...rm1, ...rm2].forEach((t) => log(`${t.name}: couldn't reset Motion rotation, please check it`, "warn"));
+  // ...and a Motion-mode stabilization's Scale to Fill with it
+  for (const t of resetMotion.filter((x) => !rm1.includes(x) && !rm2.includes(x))) {
+    markMotionStab(t, false);
+    if (!hasMotionBase(t)) continue;
+    if (transact(project, "undo scale to fill", () => motionScaleBackActions(t))) storeMotionBase(t, null);
+    else log(`${t.name}: couldn't put Motion > Scale back, please check it`, "warn");
+  }
 
   // 2. find the Rotation to set: Motion's, or REDFlipper's Transform (added where there isn't one)
   if (mode === "motion") {
@@ -1730,6 +1753,7 @@ async function analyseAndFlip() {
     if (r === "stop") { stopped = true; break; }
     if (!r) { note([t], `add keyframes${lastTxError ? ` (${lastTxError})` : ""}`); continue; }
     finished.push(t);
+    if (mode === "motion") markMotionStab(t, t.plan.kind === "stab");
     if (stabilize && n + 1 < todo.length) await rest(CLIP_REST_MS);   // lets Premiere catch up, and a Stop click through
   }
 
@@ -1928,12 +1952,12 @@ async function removeRotation() {
   } else if (mode === "motion") {
     // Motion > Rotation holding a flip: static 180, or keyframed with only 0/180 values
     const motion = [];
-    for (const t of c.targets) { checkStop(); if (await isMotionFlip(t.scan.motionRotation, t.inPoint, opt("optStabilize"))) motion.push(t); }
+    for (const t of c.targets) { checkStop(); if (await isMotionFlip(t.scan.motionRotation, t.inPoint, opt("optStabilize") || hasMotionStab(t))) motion.push(t); }
     const f1 = runPhase(c.project, "reset Motion rotation", motion, (t) => [t.scan.motionRotation.createSetTimeVaryingAction(false)]);
     const f2 = runPhase(c.project, "reset Motion rotation", motion.filter((t) => !f1.includes(t)),
       (t) => [t.scan.motionRotation.createSetValueAction(t.scan.motionRotation.createKeyframe(0), true)]);
     failed = [...f1, ...f2];
-    motion.filter((t) => !failed.includes(t)).forEach((t) => updated.add(t));
+    motion.filter((t) => !failed.includes(t)).forEach((t) => { updated.add(t); markMotionStab(t, false); });
     found = motion.length;
     // put back Motion > Scale from before Scale to Fill (remembered per clip)
     for (const t of motion.filter((x) => !failed.includes(x) && hasMotionBase(x))) {
