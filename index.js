@@ -2041,6 +2041,19 @@ $("log").addEventListener("scroll", () => {
   logLastTop = top;
 });
 $("logCopy").addEventListener("click", () => copyLog());
+// Clear Log (2.6.26): empties the log (not during a run) and brings the welcome back
+$("logClear").addEventListener("click", () => {
+  if (busy) return;
+  if (logPlain) toggleLogPlain();
+  const box = $("log");
+  box.textContent = "";
+  box.classList.add("hidden");
+  $("welcome").classList.remove("hidden");
+  if (welcomeTimer) clearInterval(welcomeTimer);
+  showWelcome();
+  setTimeout(() => animateWelcome(false), 100);   // and turns once, as on opening
+  status("");
+});
 $("logSelect").addEventListener("click", () => toggleLogPlain());
 initLogo();
 showWelcome();
