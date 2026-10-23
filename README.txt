@@ -49,9 +49,10 @@ ADVANCED OPTIONS (remembered between sessions)
   Settings under it (while it's ticked):
   - Stabilizing Method: Gyroscope & Accelerometer (default) or Accelerometer Only.
   - Framing: Scale to Fill Frame (default) zooms each clip just enough to hide the corners the
-    rotation shows (one fixed zoom per clip, for the part of it used in the sequence; flips are
-    ignored), in the same place as the rotation (Transform, Motion or Source Clip). In Motion it
-    multiplies the clip's own Scale, and Undo puts it back. No Change leaves the scale alone.
+    rotation shows: one steady zoom per clip for the part of it used in the sequence, plus a
+    further zoom keyframed through each flip (eased in and out, up to about 204% on 16:9), in the
+    same place as the rotation (Transform, Motion or Source Clip). In Motion it scales the clip's
+    own Scale, and Undo puts it back. No Change leaves the scale alone.
 - Auto-Backup Project (recommended, on by default): every time Analyze & Flip (or Analyze & Stabilize) is used, saves the
   project (like Ctrl+S / Cmd+S), then puts a timestamped copy (<project>-REDFlipper-<date>_<time>.prproj)
   in the "Adobe Premiere Pro Auto-Save" folder next to the project, before anything is

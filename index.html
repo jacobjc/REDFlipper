@@ -47,10 +47,11 @@
     /* Lock to Horizon's own settings, under its label while it's ticked */
     #stabOptions { margin: 0 0 0 20px; }
     .subopt { display: flex; align-items: center; height: 20px; }
-    .subLabel { width: 130px; flex-shrink: 0; color: #ccc; }
+    /* each dropdown sits right after its label, one space on */
+    .subLabel { flex-shrink: 0; color: #ccc; margin-right: 4px; }
     #applyRow { margin: 4px 0 0; }
-    .applyLabel { width: 150px; flex-shrink: 0; }
-    .applyWarn { margin: 1px 0 0 150px; }
+    .applyLabel { flex-shrink: 0; margin-right: 4px; }
+    .applyWarn { margin: 1px 0 0; }
     /* compact dropdowns: one text line tall; the menu opens over the options below */
     .dd { position: relative; width: 210px; }
     .ddBtn { display: flex; align-items: center; height: 16px; padding: 0 6px; border: 1px solid #555;

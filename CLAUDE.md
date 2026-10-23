@@ -7,7 +7,7 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
 119.88 fps slow motion played at 23.976, but formats vary, so frame rates are read per clip.
 
 ## Files
-- Panel size (2.4.6): minimum/floating/docked all 700x450 (Premiere 26.5 ignores the preferred size on first open but
+- Panel size (2.6.7): minimum/floating/docked all 700x563 (height +25% at Jacob's request; 700x450 since 2.4.6) (Premiere 26.5 ignores the preferred size on first open but
   respects the minimum, so the minimum is the opening size).
 - `manifest.json` — id `com.jacobchristiansen.redflip`, name `REDFlipper`, version (bump every release;
   the panel shows it next to the title), host `premierepro` min 25.6.0, `localFileSystem: fullAccess`
@@ -173,9 +173,15 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   `stabPlan(result, method)` (cached per method in `result.stabs`). Framing step 5b after the keyframes: `fillScale`
   = max over used frames (timeline in/out) of max((A·cos φ + sin φ)/A, A·sin φ + cos φ), φ = tilt from nearest
   0/180, no zoom limit since 2.6.5 (Jacob): skips only flips (runs of frames > 30° in which the camera passes 90°) and 0.5 s around them, so up to √(A²+1) ≈ 204% on 16:9; A from `sequence.getFrameSize()`
-  (16:9 fallback). Transform/Source: REDFlipper Transform's "Scale" set absolute (100 when not filling, also on
-  flip runs). Motion: Motion > Scale multiplied; factor remembered in localStorage
-  `redflipper.motionScale.<path>|<inPoint ticks>` and divided out on re-run/Undo. On Jacob's A002 clips the fill
+  (16:9 fallback). Flips (2.6.7, Jacob saw corners mid-flip): `fillRamp` keyframes a further zoom per frame = max of the
+  needed scale over ±0.2 s (record time), averaged over ±0.2 s (never below need, eased), keys only where it changes,
+  LINEAR, strays removed via `interpPlan(t, "scale", keys)`. Transform/Source: REDFlipper Transform's "Scale" (set
+  absolute; 100 when not filling, also on flip runs; old keys cleared first). Motion: Motion > Scale = base × factor,
+  base (the value before) remembered in localStorage `redflipper.motionScaleBase.<path>|<inPoint ticks>` (2.6.4–2.6.6
+  stored the factor in `redflipper.motionScale.…`, still read) and restored on re-run/Undo.
+- `getKeyframeListAsTickTimes()` returned a list with null entries in Premiere (2.6.6: "Cannot read properties of null
+  (reading 'ticksNumber')", on some re-runs): `keyTimes` re-reads after a pause, then drops nulls; planned times come
+  from `frameTicks` directly. On Jacob's A002 clips the fill
   would be 108–137% (A016, 23° tilt: 162%).
 - Cmd vs Ctrl (2.6.4): `appendColoured` swaps "Ctrl" for "Cmd" on macOS (`require("os").platform()`), so all panel
   text and log lines follow; strings stay written with Ctrl.

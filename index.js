@@ -879,6 +879,39 @@ function fillScale(keys, fromFrame, toFrame, aspect, recordFps) {
   return { scale: Math.ceil(scale * 1000) / 1000, tilt: worst };
 }
 
+// Through flips the steady zoom isn't enough, so Scale to Fill keyframes a further zoom there
+// (2.6.7): per frame the scale its tilt needs, the largest within ±FILL_EASE_S, averaged over
+// ±FILL_EASE_S. That never falls below what a frame needs and eases in and out. Returns only the
+// keys where the scale changes (null when the steady `base` covers every frame).
+const FILL_EASE_S = 0.2;
+function fillRamp(keys, base, aspect, recordFps) {
+  const n = keys.length, w = Math.max(1, Math.round(FILL_EASE_S * recordFps));
+  const need = keys.map((k) => {
+    const r = Math.abs(k.value - 180 * Math.round(k.value / 180)) * Math.PI / 180, c = Math.cos(r), sn = Math.sin(r);
+    return Math.max((aspect * c + sn) / aspect, aspect * sn + c);
+  });
+  const peak = need.map((_, i) => {
+    let m = 0;
+    for (let j = Math.max(0, i - w); j <= Math.min(n - 1, i + w); j++) m = Math.max(m, need[j]);
+    return m;
+  });
+  const sum = [0];
+  for (const v of peak) sum.push(sum[sum.length - 1] + v);
+  const scale = peak.map((_, i) => {
+    const a = Math.max(0, i - w), b = Math.min(n, i + w + 1);
+    return Math.ceil(Math.max(base, (sum[b] - sum[a]) / (b - a)) * 1000) / 1000;
+  });
+  if (!scale.some((v) => v > base)) return null;
+  const out = [];
+  let flips = 0, top = base;
+  for (let i = 0; i < n; i++) {
+    if (scale[i] > base && (i === 0 || scale[i - 1] <= base)) flips++;
+    top = Math.max(top, scale[i]);
+    if (i === 0 || i === n - 1 || scale[i] !== scale[i - 1] || scale[i] !== scale[i + 1]) out.push({ frame: keys[i].frame, value: scale[i] });
+  }
+  return { keys: out, flips, top };
+}
+
 // The frame's width / height, from the sequence (16:9 if it can't be read).
 async function frameAspect(seq) {
   try {
@@ -900,16 +933,26 @@ function scaleOf(component) {
   return height;
 }
 
-// Motion mode multiplies the clip's own Motion > Scale, so the factor used is remembered per clip
-// (media + in point) to take it back out on a re-run or Undo.
+// Motion mode scales the clip's own Motion > Scale, so its value from before is remembered per
+// clip (media + in point) to put it back on a re-run or Undo. (2.6.4–2.6.6 remembered the factor.)
 const motionScaleKey = (t) => `redflipper.motionScale.${t.path}|${ticksOf(t.inPoint)}`;
-function storedMotionScale(t) {
-  try { const v = Number(localStorage.getItem(motionScaleKey(t))); return v > 0 ? v : 1; } catch (e) { return 1; }
-}
-function storeMotionScale(t, factor) {
+const motionBaseKey = (t) => `redflipper.motionScaleBase.${t.path}|${ticksOf(t.inPoint)}`;
+// the Motion > Scale from before Scale to Fill, or null if REDFlipper hasn't scaled this clip
+function motionBase(t, now) {
   try {
-    if (Math.abs(factor - 1) < 1e-6) localStorage.removeItem(motionScaleKey(t));
-    else localStorage.setItem(motionScaleKey(t), String(factor));
+    const base = Number(localStorage.getItem(motionBaseKey(t)));
+    if (base > 0) return base;
+    const factor = Number(localStorage.getItem(motionScaleKey(t)));
+    if (factor > 0 && now !== undefined) return now / factor;
+  } catch (e) { /* not remembered */ }
+  return null;
+}
+const hasMotionBase = (t) => motionBase(t, 1) !== null;
+function storeMotionBase(t, base) {
+  try {
+    localStorage.removeItem(motionScaleKey(t));
+    if (base === null) localStorage.removeItem(motionBaseKey(t));
+    else localStorage.setItem(motionBaseKey(t), String(base));
   } catch (e) { /* not remembered */ }
 }
 
@@ -1471,11 +1514,23 @@ async function analyseAndFlip() {
   // are only removed when every planned key was found, so an unexpected time base never wipes our
   // keys. Both lists are walked in time order (stabilizing can mean thousands of keys).
   // Which existing keys are ours (as tick counts), and which are strays to remove.
-  const interpPlan = (t) => {
+  // Premiere has handed back a key list with empty entries (2.6.6, "reading 'ticksNumber'"), so the
+  // list is read again after a pause before the empty entries are dropped.
+  const keyTimes = async (t, which) => {
+    let list = [];
+    for (let i = 0; i < 3; i++) {
+      list = [...(t[which].getKeyframeListAsTickTimes() || [])];
+      if (list.every((time) => time !== null && time !== undefined)) break;
+      await pause();
+      await refetch(t);
+    }
+    return list.filter((time) => time !== null && time !== undefined);
+  };
+  const interpPlan = async (t, which = "rotation", keys = t.plan.keys) => {
     const halfFrame = Number(TICKS_PER_SEC) * t.result.fpsDen / t.result.fpsNum / 2;
-    const planned = t.plan.keys.map((k) => tickTimeAt(k.frame, t.result.fpsNum, t.result.fpsDen).ticksNumber);
-    const existing = t.rotation.getKeyframeListAsTickTimes()
-      .map((time) => ({ ticks: ticksOf(time), at: Number(time.ticksNumber) })).sort((x, y) => x.at - y.at);
+    const planned = keys.map((k) => Number(frameTicks(k.frame, t.result.fpsNum, t.result.fpsDen)));
+    const existing = (await keyTimes(t, which))
+      .map((time) => ({ ticks: ticksOf(time), at: Number(ticksOf(time)) })).sort((x, y) => x.at - y.at);
     let allFound = true, j = 0;
     for (const p of planned) {
       while (j < existing.length && existing[j].at < p - halfFrame) j++;
@@ -1487,7 +1542,7 @@ async function analyseAndFlip() {
       if (best < 0) allFound = false;
       else { existing[best].ours = true; j = best + 1; }
     }
-    if (!allFound) log(`${t.name}: keyframes didn't land where expected, please check this clip`, "warn");
+    if (!allFound) log(`${t.name}: ${which === "scale" ? "Scale " : ""}keyframes didn't land where expected, please check this clip`, "warn");
     return existing.filter((e) => e.ours || allFound);
   };
   // Premiere's objects (the Rotation parameter, keyframes, actions) don't survive a pause after an
@@ -1498,6 +1553,7 @@ async function analyseAndFlip() {
     const comp = chain && t.compIndex !== undefined ? chain.getComponentAtIndex(t.compIndex) : null;
     t.rotation = comp ? rotationOf(comp) : null;
     if (!t.rotation) throw new Error(`${t.name}: lost track of its Rotation`);
+    t.scale = scaleOf(comp);
     return { chain, comp };
   };
   const pause = () => new Promise((r) => setTimeout(r, 0));
@@ -1533,7 +1589,7 @@ async function analyseAndFlip() {
         return t.rotation.createAddKeyframeAction(kf);
       }));
       if (r === true) {
-        const plan = interpPlan(t), mode2 = interpOf(t);
+        const plan = await interpPlan(t), mode2 = interpOf(t);
         r = await inBatches(t, "set keyframe interpolation", plan.length, (a, b) => plan.slice(a, b).map((e) => (e.ours
           ? t.rotation.createSetInterpolationAtKeyframeAction(tickTime(e.ticks), mode2, false)
           : t.rotation.createRemoveKeyframeAction(tickTime(e.ticks), false))));
@@ -1570,38 +1626,86 @@ async function analyseAndFlip() {
   }
 
   // 5b. Framing. Scale to Fill zooms each stabilized clip just enough to hide the corners the
-  // rotation shows (one fixed scale per clip, for the part of it that's used); otherwise REDFlipper's
-  // own Transform goes back to 100%. Motion mode multiplies Motion > Scale and remembers the factor.
-  if (mode !== "motion" || fill || units.some((u) => (u.targets || [u]).some((t) => storedMotionScale(t) !== 1))) {
+  // rotation shows: one steady zoom for the part of the clip that's used, and since 2.6.7 a further
+  // keyframed zoom through flips, eased in and out. Otherwise REDFlipper's own Transform goes back to
+  // 100%. Motion mode scales Motion > Scale from its value before and remembers that value.
+  let scaleStopped = false;
+  if (mode !== "motion" || fill || units.some((u) => (u.targets || [u]).some((t) => hasMotionBase(t)))) {
     for (const u of ready) {
       if (bad.has(u)) continue;
-      let want = 1, info = null;
+      let want = 1, info = null, ramp = null;
       if (fill && u.plan.kind === "stab") {
         const fr = (tt) => Math.round(Number(ticksOf(tt)) * u.result.fpsNum / (u.result.fpsDen * Number(TICKS_PER_SEC)));
-        info = fillScale(u.plan.keys, u.item ? fr(u.inPoint) : 0, u.item && u.outPoint ? fr(u.outPoint) : Infinity, aspect,
-                         (u.result.clip && u.result.clip.recordFps) || 24);
+        const recordFps = (u.result.clip && u.result.clip.recordFps) || 24;
+        info = fillScale(u.plan.keys, u.item ? fr(u.inPoint) : 0, u.item && u.outPoint ? fr(u.outPoint) : Infinity, aspect, recordFps);
         want = info.scale;
+        ramp = fillRamp(u.plan.keys, want, aspect, recordFps);
       }
       try {
-        const { comp } = await refetch(u);
-        const scale = scaleOf(comp);
-        if (!scale) { if (want !== 1) log(`${u.name}: couldn't find the Scale setting, so it wasn't scaled to fill`, "warn"); continue; }
-        if (scale.isTimeVarying()) { if (want !== 1) log(`${u.name}: its Scale is keyframed, so it wasn't scaled to fill`, "warn"); continue; }
-        const now = num(await scale.getValueAtTime(u.inPoint || tickTime(0n)));
-        const prev = mode === "motion" ? storedMotionScale(u) : 1;
-        const target = mode === "motion" ? (now / prev) * want : 100 * want;
-        if (Math.abs(target - now) > 0.001) {
-          if (!transact(project, "scale to fill", () => [scale.createSetValueAction(scale.createKeyframe(target), true)])) {
+        await refetch(u);
+        if (!u.scale) { if (want !== 1) log(`${u.name}: couldn't find the Scale setting, so it wasn't scaled to fill`, "warn"); continue; }
+        const now = num(await u.scale.getValueAtTime(u.inPoint || tickTime(0n)));
+        let base = 100;
+        if (mode === "motion") {
+          const stored = motionBase(u, now);
+          if (stored === null && u.scale.isTimeVarying()) {
+            if (want !== 1 || ramp) log(`${u.name}: its Motion > Scale is keyframed, so it wasn't scaled to fill`, "warn");
+            continue;
+          }
+          base = stored === null ? now : stored;
+        }
+        // the steady zoom (keyframes from an earlier run cleared)
+        const target = base * want;
+        if (u.scale.isTimeVarying() || Math.abs(target - now) > 0.001) {
+          const sc = u.scale;
+          if (!transact(project, "scale to fill", () => [
+            ...(sc.isTimeVarying() ? [sc.createSetTimeVaryingAction(false)] : []),
+            sc.createSetValueAction(sc.createKeyframe(target), true)])) {
             log(`${u.name}: couldn't set its Scale${lastTxError ? ` (${lastTxError})` : ""}`, "warn"); continue;
           }
         }
-        if (mode === "motion") storeMotionScale(u, want);
-        if (info && want > 1) {
+        if (mode === "motion") storeMotionBase(u, want === 1 && !ramp ? null : base);
+        // the zoom through flips
+        let rampNote = "";
+        if (ramp && !scaleStopped) {
+          await pause(); await refetch(u);
+          const keys = ramp.keys.map((k) => ({ frame: k.frame, value: base * k.value })), fr = [u.result.fpsNum, u.result.fpsDen];
+          let r = transact(project, "enable scale keyframes", () => [u.scale.createSetTimeVaryingAction(true)]);
+          if (r) {
+            await pause(); await refetch(u);
+            r = await inBatches(u, "add scale keyframes", keys.length, (a, b) => keys.slice(a, b).map((k) => {
+              const kf = u.scale.createKeyframe(k.value);
+              kf.position = tickTimeAt(k.frame, ...fr);
+              return u.scale.createAddKeyframeAction(kf);
+            }));
+          }
+          if (r === true) {
+            await pause(); await refetch(u);
+            const plan = await interpPlan(u, "scale", keys), linear = ppro.Constants.InterpolationMode.LINEAR;
+            r = await inBatches(u, "set scale interpolation", plan.length, (a, b) => plan.slice(a, b).map((e) => (e.ours
+              ? u.scale.createSetInterpolationAtKeyframeAction(tickTime(e.ticks), linear, false)
+              : u.scale.createRemoveKeyframeAction(tickTime(e.ticks), false))));
+          }
+          if (r !== true) {
+            // keep the steady zoom only
+            await refetch(u);
+            const sc = u.scale;
+            transact(project, "scale to fill", () => [sc.createSetTimeVaryingAction(false), sc.createSetValueAction(sc.createKeyframe(target), true)]);
+            if (r === "stop") scaleStopped = true;
+            else log(`${u.name}: couldn't keyframe the zoom through flips${lastTxError ? ` (${lastTxError})` : ""}; it has the steady zoom only`, "warn");
+          } else {
+            rampNote = `, zooming further (up to ${(ramp.top * 100).toFixed(1)}%) through ${ramp.flips} flip(s)`;
+          }
+        }
+        if (info && (want > 1 || rampNote)) {
           log(`${u.name}: scaled ${mode === "motion" ? `by ${(want * 100).toFixed(1)}% (to ${target.toFixed(1)}%)` : `to ${(want * 100).toFixed(1)}%`}` +
-              ` to fill the frame (tilts up to ${info.tilt.toFixed(1)}°).`, "dim");
+              ` to fill the frame (tilts up to ${info.tilt.toFixed(1)}°)${rampNote}.`, "dim");
         }
       } catch (e) { log(`${u.name}: couldn't set its Scale (${e && e.message ? e.message : e})`, "warn"); }
     }
+  }
+  if (scaleStopped) {
+    throw new Error("Stopped. The clips are stabilized; some have the steady zoom only (no further zoom through flips). Run again to finish them.");
   }
 
   // 6. keyframe test on the first mid-take clip (stabilizing: values at a few keys, and halfway between two)
@@ -1679,14 +1783,15 @@ async function removeRotation() {
     failed = [...f1, ...f2];
     motion.filter((t) => !failed.includes(t)).forEach((t) => updated.add(t));
     found = motion.length;
-    // take back a Scale to Fill zoom (Motion > Scale was multiplied; the factor was remembered)
-    for (const t of motion.filter((x) => !failed.includes(x) && storedMotionScale(x) !== 1)) {
+    // put back Motion > Scale from before Scale to Fill (remembered per clip)
+    for (const t of motion.filter((x) => !failed.includes(x) && hasMotionBase(x))) {
       try {
         const chain = await t.item.getComponentChain();
         const scale = scaleOf(chain.getComponentAtIndex(t.scan.motionIndex));
-        const now = num(await scale.getValueAtTime(t.inPoint));
-        if (transact(c.project, "undo scale to fill", () => [scale.createSetValueAction(scale.createKeyframe(now / storedMotionScale(t)), true)])) {
-          storeMotionScale(t, 1);
+        const base = motionBase(t, num(await scale.getValueAtTime(t.inPoint)));
+        if (transact(c.project, "undo scale to fill", () => [...(scale.isTimeVarying() ? [scale.createSetTimeVaryingAction(false)] : []),
+          scale.createSetValueAction(scale.createKeyframe(base), true)])) {
+          storeMotionBase(t, null);
         } else throw new Error(lastTxError || "refused");
       } catch (e) { log(`${t.name}: couldn't put Motion > Scale back (${e && e.message ? e.message : e}); please check it`, "warn"); }
     }
