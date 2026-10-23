@@ -2,7 +2,10 @@ REDFlipper - Premiere Pro panel
 ===============================
 
 INSTALL / UPDATE
-- Download REDFlipper-v<version>.ccx and double-click it. Creative Cloud installs the plugin
+- Open Creative Cloud first (it must be running for the install to work).
+- Download REDFlipper-v<version>.ccx from the latest release:
+  https://github.com/jacobjc/REDFlipper/releases/latest
+  Double-click it and Creative Cloud installs the plugin
   (close Premiere first when updating).
 - Then in Premiere: Window > UXP Plugins > REDFlipper.
 
@@ -82,7 +85,19 @@ HOW IT DECIDES
 - When the lens points nearly straight up or down, the last state is kept.
 - Changes shorter than 2 seconds (of playback) are ignored, so a camera hovering
   near 90 degrees doesn't cause rapid flips.
-- Needs clips from KOMODO 1.7+, KOMODO-X, or V-RAPTOR 1.2+ firmware (motion data).
+
+SUPPORTED CAMERAS
+REDFlipper reads the gyro/accelerometer data that RED's current camera bodies
+record into the .R3D. Clips must be R3D (ProRes files carry no motion data).
+- Tested: V-RAPTOR 8K VV.
+- Should work (same motion data format, not yet tested):
+  - V-RAPTOR and V-RAPTOR XL, including [X] models, firmware 1.2 or later
+  - KOMODO, firmware 1.7 or later
+  - KOMODO-X, firmware 1.0 or later
+- Not supported: DSMC2 cameras (HELIUM, MONSTRO, GEMINI, DRAGON-X), RAVEN and
+  older bodies. They store motion data in an older format REDFlipper doesn't read.
+- For accurate data, RED recommends the in-camera calibration:
+  Menu > Settings > Maintenance > Calibrate > Gyro/Acc.
 
 CREDITS
 - by Jacob J. Christiansen
