@@ -242,8 +242,8 @@ function optionsChanged() {
   refreshBackupInfo();
 }
 
-// Options another option overrides are greyed out and show the state they're forced to (a grey
-// tick when forced on, no tick when forced off): applying to the Source Clip and Stabilize turn off
+// Options another option overrides are greyed out and show the state they're forced to (ticked
+// when forced on, unticked when forced off): applying to the Source Clip and Stabilize turn off
 // cuts. The option's own setting (the .on class, which is what's saved) is
 // kept, so it comes back once the override is gone.
 const forcedState = () => ({
@@ -256,10 +256,10 @@ function showOverrides() {
     const f = id in forced ? forced[id] : null, shown = f === null ? opt(id) : f;
     if (f === null) $(id).classList.remove("overridden"); else $(id).classList.add("overridden");
     if (shown) $(id).classList.add("shown"); else $(id).classList.remove("shown");   // warnings show only while ticked
+    // Premiere's own checkbox since 2.6.17 (greyed with its disabled state)
     const box = $(id).querySelector(".box");
-    box.textContent = shown ? "✓" : "";
-    box.className = `box${shown ? " checked" : ""}`;
-    $(id).setAttribute("aria-checked", shown ? "true" : "false");
+    box.checked = shown;
+    box.disabled = f !== null || busy;
   }
   if (opt("optStabilize")) $("stabOptions").classList.remove("hidden"); else $("stabOptions").classList.add("hidden");
   for (const m of ["motion", "source"]) {
@@ -278,6 +278,7 @@ const sub = (id) => { const v = $(id).value; return SUBOPTS[id][1].some(([k]) =>
 // While a run is going the settings can't change (the run reads them as it goes).
 function lockSettings(on) {
   for (const id of Object.keys(SUBOPTS)) $(id).disabled = on;
+  showOverrides();   // checkboxes follow `busy`
   if (on) $("advanced").classList.add("locked"); else $("advanced").classList.remove("locked");
 }
 
@@ -1937,8 +1938,16 @@ $("flip").addEventListener("click", () => { if (!busy) animateLogo(opt("optStabi
 $("remove").addEventListener("click", () => guarded(removeRotation));
 $("stop").addEventListener("click", () => { stopRequested = true; status("Stopping…"); });
 $("scopeSwitch").addEventListener("click", () => { if (!busy) setSelectedOnly(!selectedOnly()); });
+// Clicking the label toggles the option; the checkbox toggles itself, so its own change is taken
+// as the new state (and put back if the option can't change right now).
 for (const id of OPTIONS) {
-  $(id).addEventListener("click", () => { if (!busy && !$(id).classList.contains("overridden")) setOpt(id, !opt(id)); });
+  const box = $(id).querySelector(".box");
+  const usable = () => !busy && !$(id).classList.contains("overridden");
+  $(id).addEventListener("click", (e) => {
+    if (e && e.target === box) return;
+    if (usable()) setOpt(id, !opt(id));
+  });
+  box.addEventListener("change", () => { if (usable()) setOpt(id, !!box.checked); else showOverrides(); });
 }
 $("advancedToggle").addEventListener("click", () => {
   const open = $("advanced").classList.contains("hidden");

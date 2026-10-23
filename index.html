@@ -29,16 +29,12 @@
     #scopeHint { color: #999; margin-left: 6px; }
     #advancedToggle { font-size: 11px; }
     #advanced { border: 1px solid #555; border-radius: 4px; padding: 4px 8px; margin: 0 0 8px; }
-    /* option checkbox: a box that fills blue with a tick when .on */
+    /* option: Premiere's checkbox and its label (the label toggles it too) */
     .opt { display: flex; align-items: flex-start; cursor: pointer; margin: 5px 0; }
-    .box { width: 12px; height: 12px; border: 1px solid #888; border-radius: 2px; margin: 1px 8px 0 0;
-           flex-shrink: 0; font-size: 10px; line-height: 12px; text-align: center; color: #fff; overflow: hidden; }
-    .box.checked { background: #2d8ceb; border-color: #2d8ceb; }
+    .opt .box { margin: 0 8px 0 0; flex-shrink: 0; }
     .optText { flex: 1 1 auto; }
     /* greyed out when another option overrides it: only colours change, so nothing moves */
     .opt.overridden { cursor: default; }
-    .opt.overridden .box { border-color: #555; color: #888; }
-    .opt.overridden .box.checked { background: #555; border-color: #555; }
     .opt.overridden .optText, .opt.overridden .fbf, .opt.overridden .stab { color: #666; }
     /* warnings sit on their own line under each option's label, only while it's ticked (even when
        forced on, and then still orange) */
@@ -104,9 +100,9 @@
       <select id="applyTo"></select></div>
     <div id="applyWarn_motion" class="applyWarn warning hidden">(Warning: Will overwrite existing motion keyframes.)</div>
     <div id="applyWarn_source" class="applyWarn warning hidden">(Warning: affects all instances of this clip in project. Will affect entire clip length.)</div>
-    <div class="opt" id="optCuts" role="checkbox" aria-checked="false"><div class="box"></div>
+    <div class="opt" id="optCuts"><input type="checkbox" class="box">
       <div class="optText">Add Cut at each Flip Point</div></div>
-    <div class="opt" id="optStabilize" role="checkbox" aria-checked="false"><div class="box"></div>
+    <div class="opt" id="optStabilize"><input type="checkbox" class="box">
       <div class="optText">Lock to Horizon (<span class="stab">Stabilize</span> Rotation)</div></div>
     <div id="stabOptions" class="hidden">
       <div class="subopt"><span class="subLabel">Stabilizing Method:</span>
@@ -114,10 +110,10 @@
       <div class="subopt"><span class="subLabel">Framing:</span>
         <select id="stabFraming"></select></div>
     </div>
-    <div class="opt" id="optForceFbf" role="checkbox" aria-checked="false"><div class="box"></div>
+    <div class="opt" id="optForceFbf"><input type="checkbox" class="box">
       <div class="optText">Force <span class="fbf">Frame-by-Frame Analysis</span>
         <span class="warning">(Warning: SLOW, doesn't improve quality)</span></div></div>
-    <div class="opt" id="optAutoSave" role="checkbox" aria-checked="false"><div class="box"></div>
+    <div class="opt" id="optAutoSave"><input type="checkbox" class="box">
       <div class="optText">Auto-Backup Project <span class="dim">(Recommended)</span></div></div>
     <div id="undoInfo"></div>
     <div id="backupInfo"></div>
