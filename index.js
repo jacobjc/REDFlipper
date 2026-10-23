@@ -276,22 +276,21 @@ const SUBOPTS = {
   stabFraming: ["fill", [["fill", "Scale to Fill Frame"], ["none", "No Change"]]],
 };
 const sub = (id) => { const v = $(id).value; return SUBOPTS[id][1].some(([k]) => k === v) ? v : SUBOPTS[id][0]; };
-// A closed menu could keep catching the mouse in UXP (hand cursor, clicks swallowed until Advanced was
-// closed and opened again, 2.6.12), so closing one hides and re-shows the Advanced box the same way.
+// A hidden menu could keep catching the mouse in UXP (hand cursor, clicks swallowed until Advanced was
+// closed and opened again, 2.6.12). So a closed menu is taken out of the panel altogether and put
+// back when it opens (2.6.14; 2.6.13 hid and re-showed Advanced, which blinked).
+const menuEls = {};
 function closeMenus() {
-  let wasOpen = false;
   for (const id of Object.keys(SUBOPTS)) {
-    const menu = $(id).querySelector(".ddMenu");
-    if (!menu.classList.contains("hidden")) wasOpen = true;
+    const menu = menuEls[id] || $(id).querySelector(".ddMenu");
     menu.classList.add("hidden");
+    if ("parentNode" in menu && menu.parentNode) menu.parentNode.removeChild(menu);
   }
-  if (wasOpen) refreshAdvanced();
 }
-function refreshAdvanced() {
-  const box = $("advanced");
-  if (box.classList.contains("hidden")) return;
-  box.style.display = "none";
-  setTimeout(() => { box.style.display = ""; }, 0);
+function openMenu(id) {
+  const menu = menuEls[id];
+  if ("parentNode" in menu && !menu.parentNode) $(id).appendChild(menu);
+  menu.classList.remove("hidden");
 }
 
 // While a run is going the settings can't change (the run reads them as it goes). A dropdown opened
@@ -314,6 +313,7 @@ function loadSubOptions() {
       }
     } catch (e) { /* default */ }
     const btn = el.querySelector(".ddBtn"), text = el.querySelector(".ddText"), menu = el.querySelector(".ddMenu");
+    menuEls[id] = menu;
     const items = choices.map(([value, label]) => {
       const item = document.createElement("div");
       item.className = "ddItem";
@@ -343,10 +343,11 @@ function loadSubOptions() {
       if (e && e.stopPropagation) e.stopPropagation();
       const open = menu.classList.contains("hidden");
       closeMenus();
-      if (open && !busy) menu.classList.remove("hidden");
+      if (open && !busy) openMenu(id);
     });
     render();
   }
+  closeMenus();
   try { document.addEventListener("click", closeMenus); } catch (e) { /* menus close on their own button */ }
 }
 
