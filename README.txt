@@ -13,8 +13,8 @@ USE
   works out which sections are upside-down, and corrects them.
 - Undo: removes REDFlipper's correction from the clips in scope. It only undoes
   what the current Advanced options apply (the bottom of the Advanced section explains it):
-  the Transform by default, Motion > Rotation with the Motion option, the Source Transform
-  with the Source option.
+  the added Transform by default, Motion > Rotation with "Default Motion effect", the Source
+  Transform with "Source Clip effect".
 - Stop: works at any point. Before the first change to your clips (reading motion data,
   the backup) nothing is changed. While applying, the clips already finished keep their
   rotation and the rest get none (nothing is left half-keyframed); run again to finish
@@ -28,16 +28,18 @@ ADVANCED OPTIONS (remembered between sessions)
 - Force Frame-by-Frame Analysis: always use the slow method. It reads the same motion data,
   so it doesn't improve quality; it only helps if a file's index is damaged (Fast
   Analysis already falls back on its own then).
-- Apply Rotation to Clip "Motion" Effect: puts the rotation in Motion > Rotation instead
-  of a Transform effect. Existing Motion rotation keyframes are replaced.
-- Apply Rotation to Source Clip: puts the Transform on the source (master) clip, so every
-  instance of that clip in the project is flipped. Overrides the Motion option (shown greyed out, off).
-- Add Cut at each Flip Point: cuts the timeline clip where the camera flips (not with the
-  Source option). Premiere's plugin API has no razor, so the cut is made by inserting a
+- Apply Rotation to (dropdown):
+  - Added Transform effect (default): adds a Transform effect to each timeline clip.
+  - Default Motion effect: puts the rotation in Motion > Rotation instead. Existing Motion
+    rotation keyframes are replaced.
+  - Source Clip effect: puts the Transform on the source (master) clip, so every instance of
+    that clip in the project is flipped.
+- Add Cut at each Flip Point: cuts the timeline clip where the camera flips (not with
+  Source Clip effect). Premiere's plugin API has no razor, so the cut is made by inserting a
   copy of the clip at the flip point (which splits it) and ripple-deleting the copy; both
   halves keep all effects. Undo does not rejoin cuts: use Ctrl+Z (Cmd+Z on macOS), or right-click
   the cut > Join Through Edits (Ctrl/Cmd + Left-click drag to select multiple cut points).
-  Greyed out (off) when Apply Rotation to Source Clip or Stabilize is on.
+  Greyed out (off) with Source Clip effect or while Stabilize is on.
 - Lock to Horizon (Stabilize Rotation): the main button becomes "Analyze & Stabilize". Instead of only flipping, levels the horizon on every frame.
   The camera's roll angle comes from its motion sensor: gravity (the accelerometer) says
   where level is, and the gyro follows fast turns, so whip pans and jolts don't knock the
@@ -66,7 +68,7 @@ WHAT IT DOES
   - whole clip upside-down: Rotation = 180 (no keyframes)
   - flips mid-take: Hold keyframes (0 / 180) at each flip, covering the whole
     source clip, so later trims and extends stay correct.
-- Motion > Rotation is left free for your own use (unless the Motion option is on).
+- Motion > Rotation is left free for your own use (unless Apply Rotation to is set to Default Motion effect).
 - A Transform on a RED clip whose Rotation is 180 or keyframed is treated as
   REDFlipper's (re-running updates it; Remove deletes it). Upright clips that
   carry one get it removed.

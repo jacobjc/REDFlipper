@@ -6,7 +6,7 @@
     html, body { height: 100%; }
     body { color: var(--uxp-host-text-color, #ddd); font-size: 12px; padding: 10px 12px; margin: 0;
            display: flex; flex-direction: column; box-sizing: border-box; overflow-y: auto; }
-    #header { display: flex; align-items: center; margin: 0 0 8px; }
+    #header { display: flex; align-items: center; margin: 0 0 4px; }
     #logoBox { position: relative; width: 32px; height: 32px; margin-right: 8px; flex-shrink: 0; }
     #logo { position: absolute; left: 0; top: 0; width: 32px; height: 32px; }
     /* animation frames (icons/spin, pre-rotated every 3°): larger than the logo so the corners
@@ -17,8 +17,8 @@
     #author { font-size: 10px; color: #777; margin-top: 2px; }
     /* keep every block at its natural height; only the log stretches or shrinks */
     body > * { flex-shrink: 0; }
-    .row { display: flex; flex-wrap: wrap; margin: 4px 0; align-items: center; }
-    .row > * { margin: 4px 6px 4px 0; }
+    .row { display: flex; flex-wrap: wrap; margin: 2px 0; align-items: center; }
+    .row > * { margin: 2px 6px 2px 0; }
     button { padding: 4px 10px; }
     /* toggle switch: a track with a knob, slid right when .on */
     #scopeSwitch { display: flex; align-items: center; cursor: pointer; }
@@ -48,6 +48,9 @@
     #stabOptions { margin: 0 0 0 20px; }
     .subopt { display: flex; align-items: center; height: 20px; }
     .subLabel { width: 130px; flex-shrink: 0; color: #ccc; }
+    #applyRow { margin: 4px 0 0; }
+    .applyLabel { width: 150px; flex-shrink: 0; }
+    .applyWarn { margin: 1px 0 0 150px; }
     /* compact dropdowns: one text line tall; the menu opens over the options below */
     .dd { position: relative; width: 210px; }
     .ddBtn { display: flex; align-items: center; height: 16px; padding: 0 6px; border: 1px solid #555;
@@ -99,14 +102,13 @@
     <button id="advancedToggle">Advanced ▸</button>
   </div>
   <div id="advanced" class="hidden">
+    <div class="subopt" id="applyRow"><span class="applyLabel">Apply Rotation to:</span>
+      <div class="dd" id="applyTo"><div class="ddBtn"><span class="ddText"></span><span class="ddArrow">▾</span></div>
+        <div class="ddMenu hidden"></div></div></div>
+    <div id="applyWarn_motion" class="applyWarn warning hidden">(Warning: Will overwrite existing motion keyframes.)</div>
+    <div id="applyWarn_source" class="applyWarn warning hidden">(Warning: affects all instances of this clip in project.)</div>
     <div class="opt" id="optCuts" role="checkbox" aria-checked="false"><div class="box"></div>
       <div class="optText">Add Cut at each Flip Point</div></div>
-    <div class="opt" id="optMotion" role="checkbox" aria-checked="false"><div class="box"></div>
-      <div class="optText">Apply Rotation to Clip “Motion” Effect
-        <span class="warning">(Warning: Will overwrite existing motion keyframes.)</span></div></div>
-    <div class="opt" id="optSource" role="checkbox" aria-checked="false"><div class="box"></div>
-      <div class="optText">Apply Rotation to Source Clip
-        <span class="warning">(Warning: affects all instances of this clip in project.)</span></div></div>
     <div class="opt" id="optStabilize" role="checkbox" aria-checked="false"><div class="box"></div>
       <div class="optText">Lock to Horizon (<span class="stab">Stabilize</span> Rotation)</div></div>
     <div id="stabOptions" class="hidden">

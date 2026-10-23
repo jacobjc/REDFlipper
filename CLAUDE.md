@@ -14,9 +14,11 @@ Owner: Jacob (video editor). Windows PC, Premiere Pro 26.5.2. Footage: V-RAPTOR 
   (needed: the plugin opens R3Ds itself), `launchProcess` (open backup folders).
 - `index.html` — panel UI: icon + title/version + "by Jacob J. Christiansen"; "Selected clips only" toggle
   switch (a styled div, `.on` class = selected only; off = whole sequence); Analyze & Flip, Undo (= Remove Rotation, renamed 2.4.7),
-  Stop, Advanced, all in one row; Advanced reveals five option checkboxes (styled divs `.opt`, `.on` = checked, saved in
-  localStorage as `redflipper.<id>`; each label's warning is on its own line below it): in order `optCuts`, `optMotion`, `optSource`, `optStabilize` (3rd from bottom since 2.6.3), `optForceFbf`, `optAutoSave`; `showOverrides()` greys out
-  overridden ones (Source → Motion and Cuts off; Stabilize → Cuts off; `forcedState()`), showing the forced state in a
+  Stop, Advanced, all in one row; Advanced starts with the "Apply Rotation to:" dropdown (2.6.6, `applyTo`:
+  transform | motion | source, replaced the optMotion/optSource checkboxes; old saved checkboxes carried over; its
+  warning shows on its own line under it), then option checkboxes (styled divs `.opt`, `.on` = checked, saved in
+  localStorage as `redflipper.<id>`; each label's warning is on its own line below it): in order `optCuts`, `optStabilize`, `optForceFbf`, `optAutoSave`; `showOverrides()` greys out
+  overridden ones (Source mode or Stabilize → Cuts off; `forcedState()`), showing the forced state in a
   grey box (no tick when forced off) and ignoring clicks; the saved `.on` state returns when the override ends. Only
   colours change when greyed (no tags since 2.5.1: Jacob found the layout shift jarring); status line, per-clip
   progress bar, log (fills remaining height, scrolls, never cleared: each run appends under a dim header; a new run
@@ -115,13 +117,13 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   Remove deletes it). Motion > Rotation is left for the editor. `isLegacyMotionFlip` cleans up v1.0, which
   used Motion rotation.
 - After applying, a "Keyframe test PASSED/FAILED" line checks one mid-take clip holds its value up to the flip.
-- Apply modes (2.4.0): Transform (default), Motion (`optMotion`: Motion > Rotation; a 0/180-only Motion rotation
-  counts as REDFlipper's, `isMotionFlip`), Source (`optSource`: Transform on the master clip via
+- Apply modes (2.4.0; one `applyTo` dropdown since 2.6.6, `applyMode()`): Transform (default), Motion (Motion > Rotation; a 0/180-only Motion rotation
+  counts as REDFlipper's, `isMotionFlip`), Source (Transform on the master clip via
   `ClipProjectItem.getComponentChain(MediaType.VIDEO)`, all instances). Each run first removes REDFlipper rotation
   that would double-flip (Transform in Motion mode, Motion flip in Transform mode, timeline flips in Source mode);
   in Transform/Motion mode a source that already has a Source Transform is skipped with a warning. Upright clips
   get every level cleaned. Remove Rotation (2.4.1) only undoes the current mode's level: Transform by default,
-  Motion flip with `optMotion`, Source Transform with `optSource`; `#undoInfo` (bottom of Advanced, `undoText()`)
+  Motion flip in Motion mode, Source Transform in Source mode; `#undoInfo` (bottom of Advanced, `undoText()`)
   explains the current undo and updates on every option change.
 - Auto-Backup Project (`optAutoSave` id kept for the saved setting; on by default via `DEFAULT_ON` since 2.4.3,
   renamed in 2.4.4): no API triggers Premiere's own auto-save. `autoBackup()` (Analyze & Flip only, right before the

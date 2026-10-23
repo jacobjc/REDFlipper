@@ -167,13 +167,18 @@ function animateLogo(stabilize) {
 
 // ------------------------------------------------------------------ advanced options
 
-const OPTIONS = ["optCuts", "optMotion", "optSource", "optStabilize", "optForceFbf", "optAutoSave"];
+const OPTIONS = ["optCuts", "optStabilize", "optForceFbf", "optAutoSave"];
 const DEFAULT_ON = new Set(["optAutoSave"]);   // Auto-Backup Project: checked until the editor unticks it
 const opt = (id) => $(id).classList.contains("on");
 
 function setOpt(id, on) {
   if (on) $(id).classList.add("on"); else $(id).classList.remove("on");
   try { localStorage.setItem(`redflipper.${id}`, on ? "1" : "0"); } catch (e) { /* not remembered */ }
+  optionsChanged();
+}
+
+// refreshes everything that follows the options (also called when a dropdown changes)
+function optionsChanged() {
   showOverrides();
   $("flip").textContent = "";
   appendColoured($("flip"), runLabel());
@@ -183,12 +188,11 @@ function setOpt(id, on) {
 }
 
 // Options another option overrides are greyed out and show the state they're forced to (a grey
-// tick when forced on, no tick when forced off): Apply to Source Clip turns off Motion and cuts,
-// Stabilize turns off cuts. The option's own setting (the .on class, which is what's saved) is
+// tick when forced on, no tick when forced off): applying to the Source Clip and Stabilize turn off
+// cuts. The option's own setting (the .on class, which is what's saved) is
 // kept, so it comes back once the override is gone.
 const forcedState = () => ({
-  optMotion: opt("optSource") ? false : null,
-  optCuts: opt("optSource") || opt("optStabilize") ? false : null,
+  optCuts: applyMode() === "source" || opt("optStabilize") ? false : null,
 });
 
 function showOverrides() {
@@ -203,11 +207,16 @@ function showOverrides() {
     $(id).setAttribute("aria-checked", shown ? "true" : "false");
   }
   if (opt("optStabilize")) $("stabOptions").classList.remove("hidden"); else { $("stabOptions").classList.add("hidden"); closeMenus(); }
+  for (const m of ["motion", "source"]) {
+    if (applyMode() === m) $(`applyWarn_${m}`).classList.remove("hidden"); else $(`applyWarn_${m}`).classList.add("hidden");
+  }
 }
 
-// Lock to Horizon's settings (dropdowns under it, shown while it's ticked). Built from divs, like the
-// checkboxes, so they stay one text line tall (2.6.5: the native <select> was much taller).
+// Dropdowns: where the rotation goes (2.6.6, replaced the Motion / Source Clip checkboxes) and Lock
+// to Horizon's settings (shown while it's ticked). Built from divs, like the checkboxes, so they
+// stay one text line tall (2.6.5: the native <select> was much taller).
 const SUBOPTS = {
+  applyTo: ["transform", [["transform", "Added Transform effect"], ["motion", "Default Motion effect"], ["source", "Source Clip effect"]]],
   stabMethod: ["gyro", [["gyro", "Gyroscope & Accelerometer"], ["accel", "Accelerometer Only"]]],
   stabFraming: ["fill", [["fill", "Scale to Fill Frame"], ["none", "No Change"]]],
 };
@@ -218,7 +227,14 @@ function loadSubOptions() {
   for (const id of Object.keys(SUBOPTS)) {
     const el = $(id), [def, choices] = SUBOPTS[id];
     el.value = def;
-    try { const saved = localStorage.getItem(`redflipper.${id}`); if (saved) el.value = saved; } catch (e) { /* default */ }
+    try {
+      const saved = localStorage.getItem(`redflipper.${id}`);
+      if (saved) el.value = saved;
+      else if (id === "applyTo") {   // carried over from the 2.6.5 checkboxes
+        if (localStorage.getItem("redflipper.optSource") === "1") el.value = "source";
+        else if (localStorage.getItem("redflipper.optMotion") === "1") el.value = "motion";
+      }
+    } catch (e) { /* default */ }
     const btn = el.querySelector(".ddBtn"), text = el.querySelector(".ddText"), menu = el.querySelector(".ddMenu");
     const items = choices.map(([value, label]) => {
       const item = document.createElement("div");
@@ -241,8 +257,7 @@ function loadSubOptions() {
     const changed = () => {
       render();
       try { localStorage.setItem(`redflipper.${id}`, sub(id)); } catch (e) { /* not remembered */ }
-      $("undoInfo").textContent = "";
-      appendColoured($("undoInfo"), undoText());
+      optionsChanged();
     };
     el.addEventListener("change", changed);
     btn.addEventListener("click", (e) => {
@@ -271,7 +286,7 @@ function loadOptions() {
 const runLabel = () => (opt("optStabilize") ? "Analyze & Stabilize" : "Analyze & Flip");
 
 // where the rotation goes: "transform" (default), "motion" or "source"
-const applyMode = () => (opt("optSource") ? "source" : opt("optMotion") ? "motion" : "transform");
+const applyMode = () => sub("applyTo");
 
 // What "Undo" does with the current options; shown at the bottom of Advanced.
 function undoText() {
