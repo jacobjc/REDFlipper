@@ -132,15 +132,12 @@ function fitWelcome() {
   const w = box.clientWidth - 16, h = box.clientHeight - 12;
   if (!(w > 0 && h > 0)) return;
   // a resize (once it settles) plays the animation (2.6.28); only while the welcome shows
-  const size = `${w}x${h}`;
-  if (welcomeSize && size !== welcomeSize) {
+  const dims = `${w}x${h}`;
+  if (welcomeSize && dims !== welcomeSize) {
     if (welcomeResizeTimer) clearTimeout(welcomeResizeTimer);
-    welcomeResizeTimer = setTimeout(() => {
-      welcomeResizeTimer = null;
-      if (!$("welcome").classList.contains("hidden")) animateWelcome(opt("optStabilize"));
-    }, 300);
+    welcomeResizeTimer = setTimeout(() => { welcomeResizeTimer = null; playWelcome(); }, 300);
   }
-  welcomeSize = size;
+  welcomeSize = dims;
   // Consolas: a character is about 0.55 of the font size wide; lines are 1.15 of it apart
   const size = Math.max(5, Math.min(16, Math.floor(Math.min(w / (WELCOME_COLS * 0.55), h / (WELCOME_ROWS * 1.15)) * 2) / 2));
   if (box.style.fontSize !== `${size}px`) {
@@ -174,6 +171,9 @@ function animateWelcome(stabilize) {
     welcomeAnim = x < 1 ? setTimeout(tick, 33) : null;
   };
   tick();
+}
+function playWelcome() {
+  if (!$("welcome").classList.contains("hidden")) animateWelcome(opt("optStabilize"));
 }
 function hideWelcome() {
   if ($("welcome").classList.contains("hidden")) return;
@@ -2067,8 +2067,16 @@ $("logClear").addEventListener("click", () => {
 $("logSelect").addEventListener("click", () => toggleLogPlain());
 initLogo();
 showWelcome();
-// the welcome logo turns once by itself when the panel opens (2.6.24)
-setTimeout(() => { if (!$("welcome").classList.contains("hidden")) animateWelcome(opt("optStabilize")); }, 500);
+// the welcome logo turns once by itself when the panel opens (2.6.24) and whenever it's shown again
+// after being closed or hidden (2.6.29), unless the log has lines
+let welcomeSoon = null;
+function playWelcomeSoon() {
+  if (welcomeSoon) clearTimeout(welcomeSoon);
+  welcomeSoon = setTimeout(() => { welcomeSoon = null; playWelcome(); }, 500);
+}
+playWelcomeSoon();
+try { require("uxp").entrypoints.setup({ panels: { redflip: { show() { playWelcomeSoon(); } } } }); } catch (e) { /* load-time play only */ }
+try { document.addEventListener("visibilitychange", () => { if (!document.hidden) playWelcomeSoon(); }); } catch (e) { /* as above */ }
 $("flip").addEventListener("click", () => { if (!busy) animateLogo(opt("optStabilize")); return guarded(analyseAndFlip); });
 $("remove").addEventListener("click", () => guarded(removeRotation));
 $("welcome").addEventListener("click", () => animateWelcome(opt("optStabilize")));
