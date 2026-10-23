@@ -42,14 +42,14 @@
     .opt.shown .optText .warning { display: block; }
     /* Lock to Horizon's own settings, under its label while it's ticked */
     #stabOptions { margin: 0 0 0 20px; }
-    .subopt { display: flex; align-items: center; min-height: 22px; }
+    .subopt { display: flex; flex-wrap: wrap; align-items: center; min-height: 22px; row-gap: 2px; }   /* a narrow panel puts the dropdown on the next line */
     /* each dropdown sits right after its label, one space on */
     .subLabel { flex-shrink: 0; color: #ccc; margin-right: 4px; }
     #applyRow { margin: 4px 0 0; }
     .applyLabel { flex-shrink: 0; margin-right: 4px; }
     .applyWarn { margin: 1px 0 0; }
     /* Premiere's own dropdowns, kept as small as it allows */
-    #advanced select { height: 22px; font-size: 11px; min-width: 210px; margin: 0; padding: 0 4px; }
+    #advanced select { height: 22px; font-size: 11px; min-width: 210px; max-width: 100%; margin: 0; padding: 0 4px; }
     #advanced.locked .opt { cursor: default; }
     #backupInfo { color: #999; margin-top: 10px; overflow-wrap: anywhere; word-break: break-all; }
     .link { text-decoration: underline; cursor: pointer; color: #b8d4ff; }
