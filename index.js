@@ -105,7 +105,44 @@ async function openFolder(dir) {
 // clickable path at the end of the line.
 let logSticky = true;   // follow new lines; off while the editor has scrolled up in the log
 
+// The empty log shows a grey welcome (2.6.20): the logo as ASCII art (from icons/header.png) and the
+// name in figlet letters. It goes away for good with the first log line.
+const WELCOME_ART = "    __      _____ _    ___ ___  __  __ ___   _____ ___\n    \\ \\    / / __| |  / __/ _ \\|  \\/  | __| |_   _/ _ \\\n     \\ \\/\\/ /| _|| |_| (_| (_) | |\\/| | _|    | || (_) |\n      \\_/\\_/ |___|____\\___\\___/|_|  |_|___|   |_| \\___/\n\n                                ..:-==++=-\n                      ..:--=+*##%@@@=:..-#*\n                   -%%@@@@@@@@@@@@#+:    +@.\n                   .@@%#**+#@@@*-...:--. -=\n                   .-==+*%@%*-  .=+=--=#+\n                     +@@@*-  :+%@%.    =@:\n                      +:  :+%@@@@@@#-.-%%.\n                       -*%@@@@@@@@@@@%@#.\n                   :=*@@@@##@@@@@@@@@@+\n                   +@@@%+==%@@%@@@@@%-\n                    =#=:=%@@*=#@@@@*.\n                      :#@@*:=%@@@@+\n                       .=-.#@@@@%-\n                          :=*@@*.\n                             -=\n\n ____  _____ ____    _____ _     ___ ____  ____  _____ ____\n|  _ \\| ____|  _ \\  |  ___| |   |_ _|  _ \\|  _ \\| ____|  _ \\\n| |_) |  _| | | | | | |_  | |    | || |_) | |_) |  _| | |_) |\n|  _ <| |___| |_| | |  _| | |___ | ||  __/|  __/| |___|  _ <\n|_| \\_\\_____|____/  |_|   |_____|___|_|   |_|   |_____|_| \\_\\";
+// Sized to the box (2.6.20): the font is as large as fits (5–16 px), re-fitted when the panel is
+// resized and twice a second while it shows, in case the resize isn't reported.
+const WELCOME_COLS = Math.max(...WELCOME_ART.split("\n").map((l) => l.length));
+const WELCOME_ROWS = WELCOME_ART.split("\n").length;
+let welcomeTimer = null;
+function fitWelcome() {
+  const box = $("welcome");
+  if (box.classList.contains("hidden")) return;
+  const w = box.clientWidth - 16, h = box.clientHeight - 12;
+  if (!(w > 0 && h > 0)) return;
+  // Consolas: a character is about 0.55 of the font size wide; lines are 1.15 of it apart
+  const size = Math.max(5, Math.min(16, Math.floor(Math.min(w / (WELCOME_COLS * 0.55), h / (WELCOME_ROWS * 1.15)) * 2) / 2));
+  if (box.style.fontSize !== `${size}px`) {
+    box.style.fontSize = `${size}px`;
+    box.style.lineHeight = `${Math.round(size * 1.15 * 10) / 10}px`;
+  }
+}
+function showWelcome() {
+  try {
+    $("welcome").textContent = WELCOME_ART;
+    fitWelcome();
+    setTimeout(fitWelcome, 50);
+    welcomeTimer = setInterval(fitWelcome, 500);
+    window.addEventListener("resize", fitWelcome);
+  } catch (e) { /* plain empty log */ }
+}
+function hideWelcome() {
+  if ($("welcome").classList.contains("hidden")) return;
+  $("welcome").classList.add("hidden");
+  if (welcomeTimer) { clearInterval(welcomeTimer); welcomeTimer = null; }
+  if (!logPlain) $("log").classList.remove("hidden");
+}
+
 function log(msg, cls, link) {
+  hideWelcome();
   const box = $("log");
   const d = appendColoured(document.createElement("div"), msg);
   if (link) d.appendChild(pathLink(link.path, link.folder));
@@ -156,8 +193,12 @@ async function copyLog() {
 // it's laid out (a text box just shown can still report no height).
 function textToBottom() {
   const box = $("logText");
+  // UXP ignored scrollTop on the text box in 2.6.19, so it's also focused with the caret at the end,
+  // which scrolls the caret into view
   const go = () => {
+    try { box.focus(); } catch (e) { /* not focusable */ }
     try { if (box.setSelectionRange) box.setSelectionRange(box.value.length, box.value.length); } catch (e) { /* scroll is enough */ }
+    try { box.selectionStart = box.selectionEnd = box.value.length; } catch (e) { /* as above */ }
     box.scrollTop = box.scrollHeight;
   };
   go();
@@ -168,10 +209,11 @@ function toggleLogPlain() {
   const box = $("logText");
   if (logPlain) {
     box.value = logAsText();
-    $("log").classList.add("hidden"); box.classList.remove("hidden");
+    $("log").classList.add("hidden"); $("welcome").classList.add("hidden"); box.classList.remove("hidden");
     textToBottom();
   } else {
-    box.classList.add("hidden"); $("log").classList.remove("hidden");
+    box.classList.add("hidden");
+    if ($("log").childNodes.length) $("log").classList.remove("hidden"); else $("welcome").classList.remove("hidden");
     if (logSticky) logToBottom();
   }
   $("logSelect").textContent = logPlain ? "Back to Log" : "Select Text";
@@ -1961,6 +2003,7 @@ $("log").addEventListener("scroll", () => {
 $("logCopy").addEventListener("click", () => copyLog());
 $("logSelect").addEventListener("click", () => toggleLogPlain());
 initLogo();
+showWelcome();
 $("flip").addEventListener("click", () => { if (!busy) animateLogo(opt("optStabilize")); return guarded(analyseAndFlip); });
 $("remove").addEventListener("click", () => guarded(removeRotation));
 // clicking the logo plays the animation the main button would (not during a run: the run waits for it)

@@ -60,6 +60,11 @@
     #logTools { flex-shrink: 0; font-size: 11px; }
     .tool { color: #999; cursor: pointer; margin-left: 12px; text-decoration: underline; }
     .tool:hover { color: #ddd; }
+    /* the empty log: grey ASCII welcome, centred */
+    #welcome { border: 1px solid #555; border-radius: 4px; flex: 1 1 0px; min-height: 120px; margin: 0; overflow: hidden;
+               display: flex; align-items: center; justify-content: center; font-family: Consolas, monospace;
+               font-size: 8px; line-height: 9px; color: #666; white-space: pre; }
+    #welcome.hidden { display: none; }
     #logText { border: 1px solid #555; border-radius: 4px; padding: 6px 8px; flex: 1 1 0px; min-height: 120px;
                font-family: Consolas, monospace; font-size: 11px; background: transparent; color: #ddd; resize: none; }
     #progressWrap { height: 4px; background: #3a3a3a; border-radius: 2px; overflow: hidden; margin: 0 0 8px; }
@@ -121,7 +126,8 @@
   <div id="statusRow"><div id="status"></div>
     <div id="logTools"><span id="logSelect" class="tool">Select Text</span><span id="logCopy" class="tool">Copy Log</span></div></div>
   <div id="progressWrap" class="hidden"><div id="progressBar"></div></div>
-  <div id="log"></div>
+  <div id="log" class="hidden"></div>
+  <pre id="welcome"></pre>
   <textarea id="logText" class="hidden" readonly></textarea>
 </body>
 </html>
