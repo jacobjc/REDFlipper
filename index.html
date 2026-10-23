@@ -45,10 +45,22 @@
     .optText .warning { display: none; }
     .opt.shown .optText .warning { display: block; }
     /* Lock to Horizon's own settings, under its label while it's ticked */
-    #stabOptions { margin: 0 0 6px 20px; }
-    .subopt { display: flex; align-items: center; margin: 3px 0; }
+    #stabOptions { margin: 0 0 0 20px; }
+    .subopt { display: flex; align-items: center; height: 20px; }
     .subLabel { width: 130px; flex-shrink: 0; color: #ccc; }
-    #stabOptions select { min-width: 220px; }
+    /* compact dropdowns: one text line tall; the menu opens over the options below */
+    .dd { position: relative; width: 210px; }
+    .ddBtn { display: flex; align-items: center; height: 16px; padding: 0 6px; border: 1px solid #555;
+             border-radius: 3px; background: #1d1d1d; cursor: pointer; font-size: 11px; }
+    .ddBtn:hover { border-color: #888; }
+    .ddText { flex: 1 1 auto; }
+    .ddArrow { color: #aaa; margin-left: 6px; }
+    .ddMenu { position: absolute; left: 0; top: 18px; width: 210px; z-index: 10; background: #2b2b2b;
+              border: 1px solid #666; border-radius: 3px; padding: 2px 0; }
+    .ddItem { padding: 2px 6px; font-size: 11px; cursor: pointer; }
+    .ddItem:hover { background: #2d8ceb; color: #fff; }
+    .ddItem.chosen { color: #6cb4ff; }
+    .ddItem.chosen:hover { color: #fff; }
     #backupInfo { color: #999; margin-top: 10px; overflow-wrap: anywhere; word-break: break-all; }
     .link { text-decoration: underline; cursor: pointer; color: #b8d4ff; }
     #undoInfo { color: #999; border-top: 1px solid #444; margin-top: 6px; padding-top: 5px; white-space: pre-line; }
@@ -99,9 +111,11 @@
       <div class="optText">Lock to Horizon (<span class="stab">Stabilize</span> Rotation)</div></div>
     <div id="stabOptions" class="hidden">
       <div class="subopt"><span class="subLabel">Stabilizing Method:</span>
-        <select id="stabMethod"><option value="gyro">Gyroscope &amp; Accelerometer</option><option value="accel">Accelerometer Only</option></select></div>
+        <div class="dd" id="stabMethod"><div class="ddBtn"><span class="ddText"></span><span class="ddArrow">▾</span></div>
+          <div class="ddMenu hidden"></div></div></div>
       <div class="subopt"><span class="subLabel">Framing:</span>
-        <select id="stabFraming"><option value="fill">Scale to Fill Frame</option><option value="none">No Change</option></select></div>
+        <div class="dd" id="stabFraming"><div class="ddBtn"><span class="ddText"></span><span class="ddArrow">▾</span></div>
+          <div class="ddMenu hidden"></div></div></div>
     </div>
     <div class="opt" id="optForceFbf" role="checkbox" aria-checked="false"><div class="box"></div>
       <div class="optText">Force <span class="fbf">Frame-by-Frame Analysis</span>

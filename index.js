@@ -202,24 +202,58 @@ function showOverrides() {
     box.className = `box${shown ? " checked" : ""}`;
     $(id).setAttribute("aria-checked", shown ? "true" : "false");
   }
-  if (opt("optStabilize")) $("stabOptions").classList.remove("hidden"); else $("stabOptions").classList.add("hidden");
+  if (opt("optStabilize")) $("stabOptions").classList.remove("hidden"); else { $("stabOptions").classList.add("hidden"); closeMenus(); }
 }
 
-// Lock to Horizon's settings (dropdowns under it, shown while it's ticked)
-const SUBOPTS = { stabMethod: "gyro", stabFraming: "fill" };
-const sub = (id) => { const v = $(id).value; return v === undefined || v === null || v === "" ? SUBOPTS[id] : v; };
+// Lock to Horizon's settings (dropdowns under it, shown while it's ticked). Built from divs, like the
+// checkboxes, so they stay one text line tall (2.6.5: the native <select> was much taller).
+const SUBOPTS = {
+  stabMethod: ["gyro", [["gyro", "Gyroscope & Accelerometer"], ["accel", "Accelerometer Only"]]],
+  stabFraming: ["fill", [["fill", "Scale to Fill Frame"], ["none", "No Change"]]],
+};
+const sub = (id) => { const v = $(id).value; return SUBOPTS[id][1].some(([k]) => k === v) ? v : SUBOPTS[id][0]; };
+const closeMenus = () => { for (const id of Object.keys(SUBOPTS)) $(id).querySelector(".ddMenu").classList.add("hidden"); };
 
 function loadSubOptions() {
   for (const id of Object.keys(SUBOPTS)) {
-    let v = SUBOPTS[id];
-    try { const saved = localStorage.getItem(`redflipper.${id}`); if (saved) v = saved; } catch (e) { /* default */ }
-    $(id).value = v;
-    $(id).addEventListener("change", () => {
+    const el = $(id), [def, choices] = SUBOPTS[id];
+    el.value = def;
+    try { const saved = localStorage.getItem(`redflipper.${id}`); if (saved) el.value = saved; } catch (e) { /* default */ }
+    const btn = el.querySelector(".ddBtn"), text = el.querySelector(".ddText"), menu = el.querySelector(".ddMenu");
+    const items = choices.map(([value, label]) => {
+      const item = document.createElement("div");
+      item.className = "ddItem";
+      item.textContent = label;
+      item.addEventListener("click", (e) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        el.value = value;
+        menu.classList.add("hidden");
+        changed();
+      });
+      menu.appendChild(item);
+      return [value, item];
+    });
+    const render = () => {
+      const v = sub(id);
+      text.textContent = choices.find(([k]) => k === v)[1];
+      for (const [k, item] of items) item.className = `ddItem${k === v ? " chosen" : ""}`;
+    };
+    const changed = () => {
+      render();
       try { localStorage.setItem(`redflipper.${id}`, sub(id)); } catch (e) { /* not remembered */ }
       $("undoInfo").textContent = "";
       appendColoured($("undoInfo"), undoText());
+    };
+    el.addEventListener("change", changed);
+    btn.addEventListener("click", (e) => {
+      if (e && e.stopPropagation) e.stopPropagation();
+      const open = menu.classList.contains("hidden");
+      closeMenus();
+      if (open) menu.classList.remove("hidden");
     });
+    render();
   }
+  try { document.addEventListener("click", closeMenus); } catch (e) { /* menus close on their own button */ }
 }
 
 function loadOptions() {
@@ -801,18 +835,23 @@ function gyroNote(name, g) {
 
 // Scale to Fill: the zoom that keeps a frame of aspect `aspect` (width / height) covered when the
 // picture is turned by phi degrees: max((A·cos + sin) / A, A·sin + cos). Upside-down needs none, so
-// phi is the tilt away from the nearest 0°/180°. Flips (frames tilted more than FILL_MAX_TILT, where
-// the camera is sideways, plus FILL_FLIP_MARGIN_S around them) are left out, or one flip would zoom
-// the whole clip in.
-const FILL_MAX_TILT = 30;
+// phi is the tilt away from the nearest 0°/180°. No zoom limit (2.6.5): any tilt counts except flips,
+// i.e. a run of frames tilted more than FILL_FLIP_TILT in which the camera passes sideways (90°), plus FILL_FLIP_MARGIN_S around it, or one flip would zoom the whole clip in.
+const FILL_FLIP_TILT = 30;
 const FILL_FLIP_MARGIN_S = 0.5;
-const FILL_MAX_SCALE = 2;
 function fillScale(keys, fromFrame, toFrame, aspect, recordFps) {
   const phis = keys.map((k) => Math.abs(k.value - 180 * Math.round(k.value / 180)));
+  const side = (i) => Math.round(keys[i].value / 180);
   const margin = Math.round(FILL_FLIP_MARGIN_S * recordFps), skip = new Uint8Array(keys.length);
-  phis.forEach((phi, i) => {
-    if (phi > FILL_MAX_TILT) for (let j = Math.max(0, i - margin); j <= Math.min(keys.length - 1, i + margin); j++) skip[j] = 1;
-  });
+  for (let i = 0; i < keys.length; ) {
+    if (phis[i] <= FILL_FLIP_TILT) { i++; continue; }
+    let j = i;
+    while (j + 1 < keys.length && phis[j + 1] > FILL_FLIP_TILT) j++;
+    let flips = false;
+    for (let k = Math.max(1, i); k <= Math.min(keys.length - 1, j + 1); k++) if (side(k) !== side(k - 1)) flips = true;
+    if (flips) for (let k = Math.max(0, i - margin); k <= Math.min(keys.length - 1, j + margin); k++) skip[k] = 1;
+    i = j + 1;
+  }
   let worst = 0, scale = 1;
   for (const [i, k] of keys.entries()) {
     if (k.frame < fromFrame || k.frame >= toFrame || skip[i]) continue;
@@ -822,7 +861,7 @@ function fillScale(keys, fromFrame, toFrame, aspect, recordFps) {
     const r = phi * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
     scale = Math.max((aspect * c + s) / aspect, aspect * s + c);
   }
-  return { scale: Math.min(FILL_MAX_SCALE, Math.ceil(scale * 1000) / 1000), tilt: worst, capped: scale > FILL_MAX_SCALE };
+  return { scale: Math.ceil(scale * 1000) / 1000, tilt: worst };
 }
 
 // The frame's width / height, from the sequence (16:9 if it can't be read).
@@ -1544,7 +1583,7 @@ async function analyseAndFlip() {
         if (mode === "motion") storeMotionScale(u, want);
         if (info && want > 1) {
           log(`${u.name}: scaled ${mode === "motion" ? `by ${(want * 100).toFixed(1)}% (to ${target.toFixed(1)}%)` : `to ${(want * 100).toFixed(1)}%`}` +
-              ` to fill the frame (tilts up to ${info.tilt.toFixed(1)}°).`, info.capped ? "warn" : "dim");
+              ` to fill the frame (tilts up to ${info.tilt.toFixed(1)}°).`, "dim");
         }
       } catch (e) { log(`${u.name}: couldn't set its Scale (${e && e.message ? e.message : e})`, "warn"); }
     }

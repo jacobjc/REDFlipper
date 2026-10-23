@@ -166,11 +166,11 @@ Each chunk file (`<clip>_001.R3D`, `_002`, … in the `.RDC` folder) is a chain 
   (axis direction of +Y unconfirmed; 2.5.4 tried -1, reverted in 2.5.5 at Jacob's request). Confirm on a tilted shot.
 - Undo in Motion mode with Stabilize on treats any keyframed Motion rotation as REDFlipper's (`isMotionFlip(..., true)`).
 - Keyframe interpolation/stray matching walks sorted lists (thousands of keys per clip).
-- Sub-options (2.6.4, `#stabOptions`, native `<select>`s shown while Stabilize is ticked, saved as
+- Sub-options (2.6.4, `#stabOptions`, shown while Stabilize is ticked; compact div dropdowns `.dd` since 2.6.5 (native `<select>` was too tall; Jacob wants them about two text lines in all), saved as
   `redflipper.stabMethod` "gyro"|"accel" and `redflipper.stabFraming` "fill"|"none"; `sub(id)`): method picks
   `stabPlan(result, method)` (cached per method in `result.stabs`). Framing step 5b after the keyframes: `fillScale`
   = max over used frames (timeline in/out) of max((A·cos φ + sin φ)/A, A·sin φ + cos φ), φ = tilt from nearest
-  0/180, skipping frames > 30° and 0.5 s around them (flips), capped at 200%; A from `sequence.getFrameSize()`
+  0/180, no zoom limit since 2.6.5 (Jacob): skips only flips (runs of frames > 30° in which the camera passes 90°) and 0.5 s around them, so up to √(A²+1) ≈ 204% on 16:9; A from `sequence.getFrameSize()`
   (16:9 fallback). Transform/Source: REDFlipper Transform's "Scale" set absolute (100 when not filling, also on
   flip runs). Motion: Motion > Scale multiplied; factor remembered in localStorage
   `redflipper.motionScale.<path>|<inPoint ticks>` and divided out on re-run/Undo. On Jacob's A002 clips the fill
