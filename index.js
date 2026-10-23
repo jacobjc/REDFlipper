@@ -201,16 +201,23 @@ let logRescrolls = 0;   // later scrolls still pending
 function logToBottom() {
   const box = $("log");
   logAutoScrollAt = Date.now();
-  box.scrollTop = box.scrollHeight;
+  box.scrollTop = box.scrollHeight + 100000;   // past the end (clamped), in case scrollHeight is a line short
   if (logRescrolls) return;
-  for (const ms of [30, 150]) {
+  for (const ms of [30, 150, 400, 1000]) {
     logRescrolls++;
     setTimeout(() => {
       logRescrolls--;
-      if (logSticky) { logAutoScrollAt = Date.now(); box.scrollTop = box.scrollHeight; }
+      if (logSticky) { logAutoScrollAt = Date.now(); box.scrollTop = box.scrollHeight + 100000; }
     }, ms);
   }
 }
+// 2.6.30 (Jacob: jumps sometimes stopped a little short): while the log follows new lines, a
+// watchdog finishes any jump UXP left short, unless the editor touched the log in the last second.
+setInterval(() => {
+  const box = $("log");
+  if (!logSticky || logPlain || box.classList.contains("hidden") || Date.now() - logUserAt < 1000) return;
+  if (box.scrollHeight - box.scrollTop - box.clientHeight > 0.5) { logAutoScrollAt = Date.now(); box.scrollTop = box.scrollHeight + 100000; }
+}, 250);
 let logAutoScrollAt = 0, logUserAt = 0, logUserSeen = false;
 
 // Copy Log / Select Text. Text in a div can't be selected in UXP, so Select Text swaps the log for
@@ -461,6 +468,7 @@ async function guarded(fn) {
   stopRequested = false;
   lockSettings(true);
   for (const id of ["flip", "remove"]) $(id).disabled = true;
+  $("flip").classList.add("disabled");
   $("stop").disabled = false;
   try { await fn(); }
   catch (e) {
@@ -477,6 +485,7 @@ async function guarded(fn) {
     status("");
     progress(null);
     for (const id of ["flip", "remove"]) $(id).disabled = false;
+    $("flip").classList.remove("disabled");
     $("stop").disabled = true;
     refreshBackupInfo();
   }
@@ -980,66 +989,36 @@ function gyroNote(name, g) {
 
 // Scale to Fill: the zoom that keeps a frame of aspect `aspect` (width / height) covered when the
 // picture is turned by phi degrees: max((A·cos + sin) / A, A·sin + cos). Upside-down needs none, so
-// phi is the tilt away from the nearest 0°/180°. No zoom limit (2.6.5): any tilt counts except flips,
-// i.e. a run of frames tilted more than FILL_FLIP_TILT in which the camera passes sideways (90°), plus FILL_FLIP_MARGIN_S around it, or one flip would zoom the whole clip in.
+// phi is the tilt away from the nearest 0°/180°. One constant zoom per clip (2.6.30, Jacob: no
+// keyframed zoom): the largest any used frame needs. With FILL_SKIP_FLIPS, flips (a run of frames
+// tilted more than FILL_FLIP_TILT in which the camera passes sideways, plus FILL_FLIP_MARGIN_S around
+// it) don't count, since one flip needs up to √(A²+1) (≈ 204% on 16:9) for the whole clip.
+const FILL_SKIP_FLIPS = false;
 const FILL_FLIP_TILT = 30;
 const FILL_FLIP_MARGIN_S = 0.5;
 function fillScale(keys, fromFrame, toFrame, aspect, recordFps) {
   const phis = keys.map((k) => Math.abs(k.value - 180 * Math.round(k.value / 180)));
   const side = (i) => Math.round(keys[i].value / 180);
   const margin = Math.round(FILL_FLIP_MARGIN_S * recordFps), skip = new Uint8Array(keys.length);
+  let flips = 0;
   for (let i = 0; i < keys.length; ) {
     if (phis[i] <= FILL_FLIP_TILT) { i++; continue; }
     let j = i;
     while (j + 1 < keys.length && phis[j + 1] > FILL_FLIP_TILT) j++;
-    let flips = false;
-    for (let k = Math.max(1, i); k <= Math.min(keys.length - 1, j + 1); k++) if (side(k) !== side(k - 1)) flips = true;
-    if (flips) for (let k = Math.max(0, i - margin); k <= Math.min(keys.length - 1, j + margin); k++) skip[k] = 1;
+    let flip = false;
+    for (let k = Math.max(1, i); k <= Math.min(keys.length - 1, j + 1); k++) if (side(k) !== side(k - 1)) flip = true;
+    if (flip && keys[j].frame >= fromFrame && keys[i].frame < toFrame) flips++;
+    if (flip && FILL_SKIP_FLIPS) for (let k = Math.max(0, i - margin); k <= Math.min(keys.length - 1, j + margin); k++) skip[k] = 1;
     i = j + 1;
   }
   let worst = 0, scale = 1;
   for (const [i, k] of keys.entries()) {
     if (k.frame < fromFrame || k.frame >= toFrame || skip[i]) continue;
-    const phi = phis[i];
-    if (phi <= worst) continue;
-    worst = phi;
-    const r = phi * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
-    scale = Math.max((aspect * c + s) / aspect, aspect * s + c);
+    const r = phis[i] * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+    scale = Math.max(scale, (aspect * c + s) / aspect, aspect * s + c);
+    worst = Math.max(worst, phis[i]);
   }
-  return { scale: Math.ceil(scale * 1000) / 1000, tilt: worst };
-}
-
-// Through flips the steady zoom isn't enough, so Scale to Fill keyframes a further zoom there
-// (2.6.7): per frame the scale its tilt needs, the largest within ±FILL_EASE_S, averaged over
-// ±FILL_EASE_S. That never falls below what a frame needs and eases in and out. Returns only the
-// keys where the scale changes (null when the steady `base` covers every frame).
-const FILL_EASE_S = 0.2;
-function fillRamp(keys, base, aspect, recordFps) {
-  const n = keys.length, w = Math.max(1, Math.round(FILL_EASE_S * recordFps));
-  const need = keys.map((k) => {
-    const r = Math.abs(k.value - 180 * Math.round(k.value / 180)) * Math.PI / 180, c = Math.cos(r), sn = Math.sin(r);
-    return Math.max((aspect * c + sn) / aspect, aspect * sn + c);
-  });
-  const peak = need.map((_, i) => {
-    let m = 0;
-    for (let j = Math.max(0, i - w); j <= Math.min(n - 1, i + w); j++) m = Math.max(m, need[j]);
-    return m;
-  });
-  const sum = [0];
-  for (const v of peak) sum.push(sum[sum.length - 1] + v);
-  const scale = peak.map((_, i) => {
-    const a = Math.max(0, i - w), b = Math.min(n, i + w + 1);
-    return Math.ceil(Math.max(base, (sum[b] - sum[a]) / (b - a)) * 1000) / 1000;
-  });
-  if (!scale.some((v) => v > base)) return null;
-  const out = [];
-  let flips = 0, top = base;
-  for (let i = 0; i < n; i++) {
-    if (scale[i] > base && (i === 0 || scale[i - 1] <= base)) flips++;
-    top = Math.max(top, scale[i]);
-    if (i === 0 || i === n - 1 || scale[i] !== scale[i - 1] || scale[i] !== scale[i + 1]) out.push({ frame: keys[i].frame, value: scale[i] });
-  }
-  return { keys: out, flips, top };
+  return { scale: Math.ceil(scale * 1000) / 1000, tilt: worst, flips };
 }
 
 // The frame's width / height, from the sequence (16:9 if it can't be read).
@@ -1818,8 +1797,8 @@ async function analyseAndFlip() {
   }
 
   // 5b. Framing. Scale to Fill zooms each stabilized clip just enough to hide the corners the
-  // rotation shows: one steady zoom for the part of the clip that's used, and since 2.6.7 a further
-  // keyframed zoom through flips, eased in and out. Otherwise REDFlipper's own Transform goes back to
+  // rotation shows: one constant zoom for the part of the clip that's used (2.6.7–2.6.29 also keyframed
+  // a further zoom through flips; Jacob wants it constant). Otherwise REDFlipper's own Transform goes back to
   // 100%. Motion mode scales Motion > Scale from its value before and remembers that value.
   let scaleStopped = false, unscaled = 0;
   if (mode !== "motion" || fill || units.some((u) => (u.targets || [u]).some((t) => hasMotionBase(t)))) {
@@ -1833,13 +1812,12 @@ async function analyseAndFlip() {
         }
         if (n) await rest(CLIP_REST_MS);
       }
-      let want = 1, info = null, ramp = null;
+      let want = 1, info = null;
       if (fill && u.plan.kind === "stab") {
         const fr = (tt) => Math.round(Number(ticksOf(tt)) * u.result.fpsNum / (u.result.fpsDen * Number(TICKS_PER_SEC)));
         const recordFps = (u.result.clip && u.result.clip.recordFps) || 24;
         info = fillScale(u.plan.keys, u.item ? fr(u.inPoint) : 0, u.item && u.outPoint ? fr(u.outPoint) : Infinity, aspect, recordFps);
         want = info.scale;
-        ramp = fillRamp(u.plan.keys, want, aspect, recordFps);
       }
       try {
         await refetch(u);
@@ -1849,7 +1827,7 @@ async function analyseAndFlip() {
         if (mode === "motion") {
           const stored = motionBase(u, now);
           if (stored === null && u.scale.isTimeVarying()) {
-            if (want !== 1 || ramp) log(`${u.name}: its Motion > Scale is keyframed, so it wasn't scaled to fill`, "warn");
+            if (want !== 1) log(`${u.name}: its Motion > Scale is keyframed, so it wasn't scaled to fill`, "warn");
             continue;
           }
           base = stored === null ? now : stored;
@@ -1864,50 +1842,17 @@ async function analyseAndFlip() {
             log(`${u.name}: couldn't set its Scale${lastTxError ? ` (${lastTxError})` : ""}`, "warn"); continue;
           }
         }
-        if (mode === "motion") storeMotionBase(u, want === 1 && !ramp ? null : base);
-        // the zoom through flips
-        let rampNote = "";
-        if (ramp && !scaleStopped) {
-          await pause(); await refetch(u);
-          const keys = ramp.keys.map((k) => ({ frame: k.frame, value: base * k.value })), fr = [u.result.fpsNum, u.result.fpsDen];
-          let r = transact(project, "enable scale keyframes", () => [u.scale.createSetTimeVaryingAction(true)]);
-          if (r) {
-            await pause(); await refetch(u);
-            r = await inBatches(u, "add scale keyframes", keys.length, (a, b) => keys.slice(a, b).map((k) => {
-              const kf = u.scale.createKeyframe(k.value);
-              kf.position = tickTimeAt(k.frame, ...fr);
-              return u.scale.createAddKeyframeAction(kf);
-            }));
-          }
-          if (r === true) {
-            await pause(); await refetch(u);
-            const plan = await interpPlan(u, "scale", keys), linear = ppro.Constants.InterpolationMode.LINEAR;
-            r = await inBatches(u, "set scale interpolation", plan.length, (a, b) => plan.slice(a, b).map((e) => (e.ours
-              ? u.scale.createSetInterpolationAtKeyframeAction(tickTime(e.ticks), linear, false)
-              : u.scale.createRemoveKeyframeAction(tickTime(e.ticks), false))));
-          }
-          if (r !== true) {
-            // keep the steady zoom only
-            await refetch(u);
-            const sc = u.scale;
-            transact(project, "scale to fill", () => [sc.createSetTimeVaryingAction(false), sc.createSetValueAction(sc.createKeyframe(target), true)]);
-            if (r === "stop") scaleStopped = true;
-            else log(`${u.name}: couldn't keyframe the zoom through flips${lastTxError ? ` (${lastTxError})` : ""}; it has the steady zoom only`, "warn");
-          } else {
-            rampNote = `, zooming further (up to ${(ramp.top * 100).toFixed(1)}%) through ${ramp.flips} flip(s)`;
-          }
-        }
-        if (info && (want > 1 || rampNote)) {
+        if (mode === "motion") storeMotionBase(u, want === 1 ? null : base);
+        if (info && want > 1) {
           log(`${u.name}: scaled ${mode === "motion" ? `by ${(want * 100).toFixed(1)}% (to ${target.toFixed(1)}%)` : `to ${(want * 100).toFixed(1)}%`}` +
-              ` to fill the frame (tilts up to ${info.tilt.toFixed(1)}°)${rampNote}.`, "dim");
+              ` to fill the frame (tilts up to ${info.tilt.toFixed(1)}°${info.flips ? `, ${info.flips} flip(s)` : ""}).`, "dim");
         }
       } catch (e) { log(`${u.name}: couldn't set its Scale (${e && e.message ? e.message : e})`, "warn"); }
     }
   }
   progress(null);
   if (scaleStopped) {
-    throw new Error(`Stopped. The clips are stabilized, but ${unscaled ? `${unscaled} clip(s) weren't scaled to fill yet` :
-      "some have the steady zoom only (no further zoom through flips)"}. Run again to finish them.`);
+    throw new Error(`Stopped. The clips are stabilized, but ${unscaled} clip(s) weren't scaled to fill yet. Run again to finish them.`);
   }
 
   // 6. keyframe test on the first mid-take clip (stabilizing: values at a few keys, and halfway between two)
