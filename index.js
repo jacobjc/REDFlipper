@@ -125,12 +125,22 @@ const WELCOME_ART = welcomeArt(0);
 // resized and twice a second while it shows, in case the resize isn't reported.
 const WELCOME_COLS = Math.max(...WELCOME_ART.split("\n").map((l) => l.length));
 const WELCOME_ROWS = WELCOME_ART.split("\n").length;
-let welcomeTimer = null;
+let welcomeTimer = null, welcomeSize = "", welcomeResizeTimer = null;
 function fitWelcome() {
   const box = $("welcome");
   if (box.classList.contains("hidden")) return;
   const w = box.clientWidth - 16, h = box.clientHeight - 12;
   if (!(w > 0 && h > 0)) return;
+  // a resize (once it settles) plays the animation (2.6.28); only while the welcome shows
+  const size = `${w}x${h}`;
+  if (welcomeSize && size !== welcomeSize) {
+    if (welcomeResizeTimer) clearTimeout(welcomeResizeTimer);
+    welcomeResizeTimer = setTimeout(() => {
+      welcomeResizeTimer = null;
+      if (!$("welcome").classList.contains("hidden")) animateWelcome(opt("optStabilize"));
+    }, 300);
+  }
+  welcomeSize = size;
   // Consolas: a character is about 0.55 of the font size wide; lines are 1.15 of it apart
   const size = Math.max(5, Math.min(16, Math.floor(Math.min(w / (WELCOME_COLS * 0.55), h / (WELCOME_ROWS * 1.15)) * 2) / 2));
   if (box.style.fontSize !== `${size}px`) {
@@ -143,7 +153,7 @@ function showWelcome() {
     $("welcome").textContent = WELCOME_ART;
     fitWelcome();
     setTimeout(fitWelcome, 50);
-    welcomeTimer = setInterval(fitWelcome, 500);
+    welcomeTimer = setInterval(fitWelcome, 200);
     window.addEventListener("resize", fitWelcome);
   } catch (e) { /* plain empty log */ }
 }
