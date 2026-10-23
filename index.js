@@ -1936,6 +1936,8 @@ $("logSelect").addEventListener("click", () => toggleLogPlain());
 initLogo();
 $("flip").addEventListener("click", () => { if (!busy) animateLogo(opt("optStabilize")); return guarded(analyseAndFlip); });
 $("remove").addEventListener("click", () => guarded(removeRotation));
+// clicking the logo plays the animation the main button would (not during a run: the run waits for it)
+$("logoBox").addEventListener("click", () => { if (!busy) animateLogo(opt("optStabilize")); });
 $("stop").addEventListener("click", () => { stopRequested = true; status("Stopping…"); });
 $("scopeSwitch").addEventListener("click", () => { if (!busy) setSelectedOnly(!selectedOnly()); });
 // Clicking the label toggles the option; the checkbox toggles itself, so its own change is taken
