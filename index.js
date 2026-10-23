@@ -46,6 +46,7 @@ const KEY_BATCH = 300;           // keyframes per Premiere step while applying (
 // stabilization is worked out, so Premiere can redraw and handle clicks (Stop included).
 const BATCH_REST_MS = 15;
 const CLIP_REST_MS = 60;
+const STOP_GROUP = 10;           // unfinished clips undone per step after a Stop
 const rest = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let busy = false;
@@ -1671,18 +1672,30 @@ async function analyseAndFlip() {
   // Stopped: the clips not finished (including the one in progress) get no REDFlipper rotation at all,
   // so nothing is left half-keyframed: their REDFlipper Transform is removed, a Motion rotation is reset to 0.
   if (stopped) {
+    // In groups of STOP_GROUP clips with a rest between, so a Stop late in a big run doesn't
+    // stall Premiere with one long burst of removals (2.6.9); a refused group is retried clip by clip.
     const left = todo.filter((t) => !finished.includes(t) && !bad.has(t));
     const failed = [];
-    for (const t of left) {
-      let ok = false;
-      try {
-        const { chain, comp } = await refetch(t);
-        ok = mode === "motion"
-          ? transact(project, "reset unfinished rotation", () => [t.rotation.createSetTimeVaryingAction(false),
-              t.rotation.createSetValueAction(t.rotation.createKeyframe(0), true)])
-          : transact(project, "remove unfinished rotation", () => [chain.createRemoveComponentAction(comp)]);
-      } catch (e) { /* reported below */ }
-      if (!ok) failed.push(t);
+    const undoActions = (t, found) => (mode === "motion"
+      ? [t.rotation.createSetTimeVaryingAction(false), t.rotation.createSetValueAction(t.rotation.createKeyframe(0), true)]
+      : [found.chain.createRemoveComponentAction(found.comp)]);
+    const label = mode === "motion" ? "reset unfinished rotation" : "remove unfinished rotation";
+    for (let i = 0; i < left.length; i += STOP_GROUP) {
+      const group = left.slice(i, i + STOP_GROUP);
+      if (left.length > STOP_GROUP) {
+        status(`Stopping… undoing unfinished clips ${Math.min(i + STOP_GROUP, left.length)}/${left.length}`);
+        progress(i / left.length);
+      }
+      if (i) await rest(CLIP_REST_MS);
+      const found = new Map();
+      for (const t of group) { try { found.set(t, await refetch(t)); } catch (e) { failed.push(t); } }
+      const ready2 = group.filter((t) => found.has(t));
+      if (ready2.length && transact(project, label, () => ready2.flatMap((t) => undoActions(t, found.get(t))))) continue;
+      for (const t of ready2) {
+        let ok = false;
+        try { const f = await refetch(t); ok = transact(project, label, () => undoActions(t, f)); } catch (e) { /* reported below */ }
+        if (!ok) failed.push(t);
+      }
     }
     failed.forEach((t) => log(`${t.name}: couldn't remove its partly applied rotation, please check it (or use “Undo”)`, "warn"));
     const word = stabilize ? "stabilized" : "flipped";
