@@ -200,7 +200,7 @@ function log(msg, cls, link) {
 let logRescrolls = 0;   // later scrolls still pending
 function logToBottom() {
   const box = $("log");
-  logAutoScrollAt = Date.now();
+  logAutoScrollAt = logJumpAt = Date.now();
   box.scrollTop = box.scrollHeight + 100000;   // past the end (clamped), in case scrollHeight is a line short
   if (logRescrolls) return;
   for (const ms of [30, 150, 400, 1000]) {
@@ -213,12 +213,14 @@ function logToBottom() {
 }
 // 2.6.30 (Jacob: jumps sometimes stopped a little short): while the log follows new lines, a
 // watchdog finishes any jump UXP left short, unless the editor touched the log in the last second.
+// 2.6.31 (Jacob: it kept pulling him back down when idle): only within LOG_SETTLE_MS of a jump.
+const LOG_SETTLE_MS = 1500;
 setInterval(() => {
-  const box = $("log");
-  if (!logSticky || logPlain || box.classList.contains("hidden") || Date.now() - logUserAt < 1000) return;
+  const box = $("log"), now = Date.now();
+  if (!logSticky || logPlain || box.classList.contains("hidden") || now - logUserAt < 1000 || now - logJumpAt > LOG_SETTLE_MS) return;
   if (box.scrollHeight - box.scrollTop - box.clientHeight > 0.5) { logAutoScrollAt = Date.now(); box.scrollTop = box.scrollHeight + 100000; }
 }, 250);
-let logAutoScrollAt = 0, logUserAt = 0, logUserSeen = false;
+let logAutoScrollAt = 0, logUserAt = 0, logUserSeen = false, logJumpAt = 0;
 
 // Copy Log / Select Text. Text in a div can't be selected in UXP, so Select Text swaps the log for
 // the same lines in a read-only text box (selectable, Ctrl+C), and back again.
@@ -1989,7 +1991,9 @@ for (const ev of ["wheel", "mousewheel", "mousedown", "pointerdown", "keydown"])
 }
 $("log").addEventListener("scroll", () => {
   const box = $("log"), top = box.scrollTop, now = Date.now();
-  const byEditor = logUserSeen ? now - logUserAt < 1000 : now - logAutoScrollAt > 300;
+  // the editor's: right after their wheel/mouse/key input, or any time the panel hasn't just scrolled it
+  // (dragging the scrollbar sends no input event in UXP, 2.6.31)
+  const byEditor = (logUserSeen && now - logUserAt < 1000) || now - logAutoScrollAt > (logUserSeen ? 1000 : 300);
   if (box.scrollHeight - top - box.clientHeight < 24) logSticky = true;
   else if (top < logLastTop - 1 && byEditor) logSticky = false;
   logLastTop = top;
