@@ -1149,6 +1149,34 @@ async function isMotionFlip(param, inPoint, stabilized) {
   return true;
 }
 
+// A REDFlipper Source Transform that only flips (static 180, or a few keys all at 0/180), as
+// [{ ticks, value }] sorted by time (one entry when static); null when it stabilizes (or can't be read).
+// 2.6.32: timeline stabilization can then stack on it (Jacob flipped in Source, then stabilized in Transform).
+async function sourceFlipSteps(param, inPoint) {
+  try {
+    if (!param.isTimeVarying()) {
+      const v = num(await param.getValueAtTime(inPoint));
+      return Math.abs(v - 180 * Math.round(v / 180)) < 0.001 ? [{ ticks: 0n, value: v }] : null;
+    }
+    const times = (param.getKeyframeListAsTickTimes() || []).filter((t) => t);
+    if (!times.length || times.length > 50) return null;
+    const steps = [];
+    for (const time of times) {
+      const v = num(await param.getValueAtTime(time));
+      if (isNaN(v) || Math.abs(v - 180 * Math.round(v / 180)) > 0.001) return null;
+      steps.push({ ticks: ticksOf(time), value: v });
+    }
+    return steps.sort((a, b) => (a.ticks < b.ticks ? -1 : a.ticks > b.ticks ? 1 : 0));
+  } catch (e) { return null; }
+}
+
+// The source flip's angle at a frame (Hold keys: the last key at or before it, else the first).
+function flipAt(steps, ticks) {
+  let v = steps[0].value;
+  for (const st of steps) { if (st.ticks <= ticks) v = st.value; else break; }
+  return v;
+}
+
 // A component chain's REDFlipper Transform (a Transform whose Rotation is 180° or keyframed),
 // its last Transform, and Motion's rotation. Works for a timeline clip's chain and a source clip's.
 async function scanChain(chain, inPoint) {
@@ -1559,10 +1587,18 @@ async function analyseAndFlip() {
       }
       if (kind !== "upright") units.push(s);
     } else if (rotates) {
-      if (s.scan.ours) {
-        log(`${s.name}: already rotated by a REDFlipper Source Transform (all instances). Skipped. ` +
+      // a Source flip: timeline stabilization goes on top of it, less the flip, so together they level the frame
+      const steps = s.scan.ours && kind === "stab" ? await sourceFlipSteps(s.scan.ours.rotation, s.inPoint) : null;
+      if (s.scan.ours && !steps) {
+        log(`${s.name}: already ${kind === "stab" ? "stabilized" : "rotated"} by a REDFlipper Source Transform (all instances). Skipped. ` +
             "Use “Undo” with Apply Rotation to: Source Clip effect first to work on its timeline clips instead.", "warn");
         continue;
+      }
+      if (steps) {
+        const [fn, fd] = [s.result.fpsNum, s.result.fpsDen];
+        const keys = s.plan.keys.map((k) => ({ ...k, value: k.value - flipAt(steps, frameTicks(k.frame, fn, fd)) }));
+        for (const t of s.targets) t.plan = { ...t.plan, keys };
+        log(`${s.name}: its Source Clip flip stays; stabilizing on top of it.`, "dim");
       }
       for (const t of s.targets) {
         units.push(t);
