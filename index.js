@@ -314,9 +314,28 @@ function animateLogo(stabilize) {
   tick();
 }
 
+// Keep Original Orientation (2.6.33, Jacob): the stabilization less the flip the analysis found
+// (0° upright, 180° upside-down, Hold through a mid-take flip), so tilts are leveled but nothing is
+// turned over. Cached on the analysis result per stabilizing plan.
+function keepPlan(result, plan) {
+  result.keeps = result.keeps || new Map();
+  if (result.keeps.has(plan)) return result.keeps.get(plan);
+  const fp = result.plan, flips = fp.kind === "mixed" ? fp.keys : null;
+  const base = fp.kind === "inverted" ? UPSIDE_DOWN : 0;
+  let j = 0;
+  const keys = plan.keys.map((k) => {   // stabilizing keys are in frame order
+    if (!flips) return { ...k, value: k.value - base };
+    while (j + 1 < flips.length && flips[j + 1].frame <= k.frame) j++;
+    return { ...k, value: k.value - (k.frame < flips[0].frame ? flips[0].value : flips[j].value) };
+  });
+  const out = { ...plan, keys };
+  result.keeps.set(plan, out);
+  return out;
+}
+
 // ------------------------------------------------------------------ advanced options
 
-const OPTIONS = ["optCuts", "optStabilize", "optForceFbf", "optAutoSave"];
+const OPTIONS = ["optCuts", "optStabilize", "optKeepOrient", "optForceFbf", "optAutoSave"];
 const DEFAULT_ON = new Set(["optAutoSave"]);   // Auto-Backup Project: checked until the editor unticks it
 const opt = (id) => $(id).classList.contains("on");
 
@@ -1535,7 +1554,9 @@ async function analyseAndFlip() {
   startRun(runLabel());
   const mode = applyMode(), stabilize = opt("optStabilize");
   const forceWalk = opt("optForceFbf"), withCuts = opt("optCuts") && mode !== "source" && !stabilize;
-  if (stabilize) log("Option: Lock to Horizon (Stabilize Rotation), levels every frame.", "dim");
+  const keepOrient = stabilize && opt("optKeepOrient");
+  if (stabilize) log("Option: Lock to Horizon (Stabilize Rotation), levels every frame" +
+                     (keepOrient ? ", keeping the original orientation (upside-down stays upside-down)." : "."), "dim");
   if (mode === "motion") log("Option: Apply Rotation to Clip “Motion” Effect.", "dim");
   if (mode === "source") log("Option: Apply Rotation to Source Clip (all instances in the project).", "dim");
   if (withCuts) log("Option: Add Cut at each Flip Point.", "dim");
@@ -1563,6 +1584,7 @@ async function analyseAndFlip() {
       }
     }
     t.plan = stabilize ? stabPlan(t.result, sub("stabMethod")) : t.result.plan;
+    if (stabilize && keepOrient) t.plan = keepPlan(t.result, t.plan);
     if (!sources.has(t.path)) {
       if (stabilize) gyroNote(t.name, t.plan.gyro);
       sources.set(t.path, { name: t.name, cpi: t.cpi, inPoint: t.inPoint, result: t.result, plan: t.plan, targets: [],
@@ -1594,7 +1616,8 @@ async function analyseAndFlip() {
             "Use “Undo” with Apply Rotation to: Source Clip effect first to work on its timeline clips instead.", "warn");
         continue;
       }
-      if (steps) {
+      if (steps && keepOrient) log(`${s.name}: its Source Clip flip stays; stabilizing on top of it.`, "dim");   // already without the flip
+      else if (steps) {
         const [fn, fd] = [s.result.fpsNum, s.result.fpsDen];
         const keys = s.plan.keys.map((k) => ({ ...k, value: k.value - flipAt(steps, frameTicks(k.frame, fn, fd)) }));
         for (const t of s.targets) t.plan = { ...t.plan, keys };
