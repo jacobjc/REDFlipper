@@ -55,6 +55,8 @@ ADVANCED OPTIONS (remembered between sessions)
   rotation leaves the flip out, so together they level the frame).
   Settings under it (while it's ticked):
   - Stabilizing Method: Gyroscope & Accelerometer (default) or Accelerometer Only.
+  - Keep Original Orientation (off by default): levels tilts but never turns a clip over, so
+    upside-down clips and parts stay upside-down (still stabilized).
   - Framing: Scale to Fill Frame (default) zooms each clip just enough to hide the corners the
     rotation shows: one constant zoom per clip (no keyframes), the smallest that shows no edges
     on any frame of the part used in the sequence (a clip that flips needs about 204% on 16:9), in the
