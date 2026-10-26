@@ -314,23 +314,35 @@ function animateLogo(stabilize) {
   tick();
 }
 
-// Keep Original Orientation (2.6.33, Jacob): the stabilization less the flip the analysis found
-// (0° upright, 180° upside-down, Hold through a mid-take flip), so tilts are leveled but nothing is
-// turned over. Cached on the analysis result per stabilizing plan.
-function keepPlan(result, plan) {
-  result.keeps = result.keeps || new Map();
-  if (result.keeps.has(plan)) return result.keeps.get(plan);
-  const fp = result.plan, flips = fp.kind === "mixed" ? fp.keys : null;
-  const base = fp.kind === "inverted" ? UPSIDE_DOWN : 0;
-  let j = 0;
-  const keys = plan.keys.map((k) => {   // stabilizing keys are in frame order
-    if (!flips) return { ...k, value: k.value - base };
-    while (j + 1 < flips.length && flips[j + 1].frame <= k.frame) j++;
-    return { ...k, value: k.value - (k.frame < flips[0].frame ? flips[0].value : flips[j].value) };
-  });
-  const out = { ...plan, keys };
-  result.keeps.set(plan, out);
-  return out;
+// Keep Original Orientation (2.7.0, Jacob; 2.6.33 subtracted the analysis' flips, which flipped mid-take):
+// the clip keeps the orientation it starts in (0° or 180°) and is leveled from there, with no flip mid-take
+// (a roll-over is turned back smoothly). That's the stabilization less one constant 0°/180°, read at
+// `startFrame` (the timeline clip's in point; 0 for a Source Clip), or at the first frame after it where
+// the camera is clearly upright or upside-down (within KEEP_CLEAR_DEG). Plans without keys pass through.
+const KEEP_CLEAR_DEG = 60;
+function keepPlan(plan, startFrame) {
+  if (!plan || plan.kind !== "stab" || !plan.keys.length) return plan;
+  const ks = plan.keys, clear = (k) => Math.abs(k.value - 180 * Math.round(k.value / 180)) <= KEEP_CLEAR_DEG;
+  let i = ks.findIndex((k) => k.frame >= startFrame);
+  if (i < 0) i = ks.length - 1;
+  let j = i;
+  while (j < ks.length && !clear(ks[j])) j++;
+  if (j >= ks.length) { j = i; while (j >= 0 && !clear(ks[j])) j--; }   // never clear after it: the last clear one before
+  const base = 180 * Math.round(ks[Math.max(j, 0)].value / 180);
+  return base ? { ...plan, keys: ks.map((k) => ({ ...k, value: k.value - base })) } : plan;
+}
+
+// A timeline clip's stabilizing keys less REDFlipper flips that stay in place elsewhere (a Source Clip
+// flip; with Keep Original Orientation also a flip in the other timeline effect), so all of them add up
+// to the plan. The key before each 180° step gets Hold, so the step lands on the same frame as the flip's
+// own Hold key even where the sequence shows frames between keys (2.7.0).
+function lessFlips(plan, lists, fpsNum, fpsDen) {
+  lists = lists.filter((l) => l && l.some((x) => Math.abs(wrap180(x.value)) > 90));   // only lists that flip
+  if (!lists.length) return plan;
+  const comp = plan.keys.map((k) => { const at = frameTicks(k.frame, fpsNum, fpsDen); return lists.reduce((a, l) => a + flipAt(l, at), 0); });
+  const keys = plan.keys.map((k, i) => ({ ...k, value: k.value - comp[i],
+                                          ...(i + 1 < comp.length && comp[i + 1] !== comp[i] ? { hold: true } : {}) }));
+  return { ...plan, keys };
 }
 
 // ------------------------------------------------------------------ advanced options
@@ -1556,7 +1568,7 @@ async function analyseAndFlip() {
   const forceWalk = opt("optForceFbf"), withCuts = opt("optCuts") && mode !== "source" && !stabilize;
   const keepOrient = stabilize && opt("optKeepOrient");
   if (stabilize) log("Option: Lock to Horizon (Stabilize Rotation), levels every frame" +
-                     (keepOrient ? ", keeping the original orientation (upside-down stays upside-down)." : "."), "dim");
+                     (keepOrient ? ", keeping the orientation each clip starts in (upside-down stays upside-down, no flips mid-take)." : "."), "dim");
   if (mode === "motion") log("Option: Apply Rotation to Clip “Motion” Effect.", "dim");
   if (mode === "source") log("Option: Apply Rotation to Source Clip (all instances in the project).", "dim");
   if (withCuts) log("Option: Add Cut at each Flip Point.", "dim");
@@ -1569,6 +1581,9 @@ async function analyseAndFlip() {
   const HOLD = ppro.Constants.InterpolationMode.HOLD;
   const interpOf = (t) => (t.plan.kind === "stab" ? ppro.Constants.InterpolationMode.LINEAR : HOLD);
   const tm = await getTransformMatchName();
+
+  // a source time as a frame of the clip (playback rate)
+  const frameOf = (tt, r) => Math.round(Number(ticksOf(tt)) * r.fpsNum / (r.fpsDen * Number(TICKS_PER_SEC)));
 
   // one entry per source clip, holding its timeline clips in scope and its own (Source) effects
   const sources = new Map();
@@ -1584,7 +1599,6 @@ async function analyseAndFlip() {
       }
     }
     t.plan = stabilize ? stabPlan(t.result, sub("stabMethod")) : t.result.plan;
-    if (stabilize && keepOrient) t.plan = keepPlan(t.result, t.plan);
     if (!sources.has(t.path)) {
       if (stabilize) gyroNote(t.name, t.plan.gyro);
       sources.set(t.path, { name: t.name, cpi: t.cpi, inPoint: t.inPoint, result: t.result, plan: t.plan, targets: [],
@@ -1608,6 +1622,7 @@ async function analyseAndFlip() {
         if (await isMotionFlip(t.scan.motionRotation, t.inPoint, hasMotionStab(t))) { resetMotion.push(t); if (kind === "upright") cleaned.add(t); }
       }
       if (kind !== "upright") units.push(s);
+      if (keepOrient) s.plan = keepPlan(s.plan, 0);   // a Source Clip keeps the orientation of its first frame
     } else if (rotates) {
       // a Source flip: timeline stabilization goes on top of it, less the flip, so together they level the frame
       const steps = s.scan.ours && kind === "stab" ? await sourceFlipSteps(s.scan.ours.rotation, s.inPoint) : null;
@@ -1616,17 +1631,25 @@ async function analyseAndFlip() {
             "Use “Undo” with Apply Rotation to: Source Clip effect first to work on its timeline clips instead.", "warn");
         continue;
       }
-      if (steps && keepOrient) log(`${s.name}: its Source Clip flip stays; stabilizing on top of it.`, "dim");   // already without the flip
-      else if (steps) {
-        const [fn, fd] = [s.result.fpsNum, s.result.fpsDen];
-        const keys = s.plan.keys.map((k) => ({ ...k, value: k.value - flipAt(steps, frameTicks(k.frame, fn, fd)) }));
-        for (const t of s.targets) t.plan = { ...t.plan, keys };
-        log(`${s.name}: its Source Clip flip stays; stabilizing on top of it.`, "dim");
-      }
+      if (steps) log(`${s.name}: its Source Clip flip stays; ` + (keepOrient ? "the new rotation corrects for it, so the clip keeps its own orientation." : "stabilizing on top of it."), "dim");
       for (const t of s.targets) {
         units.push(t);
-        if (mode === "transform" && await isMotionFlip(t.scan.motionRotation, t.inPoint, hasMotionStab(t))) resetMotion.push(t);
-        if (mode === "motion" && t.scan.ours) stripTransform.push(t);
+        // With Keep Original Orientation (2.7.0, Jacob) a REDFlipper flip in the other timeline effect (Motion in
+        // Transform mode, REDFlipper's Transform in Motion mode) stays too, and the new rotation corrects for it.
+        // A stabilization there is still cleared, and so is any flip there without Keep Original Orientation.
+        let other = null;
+        if (mode === "transform" && t.scan.motionRotation) {
+          const stabbed = hasMotionStab(t);
+          if (keepOrient && kind === "stab" && !stabbed) other = await sourceFlipSteps(t.scan.motionRotation, t.inPoint);
+          if (!other && await isMotionFlip(t.scan.motionRotation, t.inPoint, stabbed)) resetMotion.push(t);
+          if (other && other.some((x) => Math.abs(wrap180(x.value)) > 90)) log(`${t.name}: its Motion flip stays; the new rotation corrects for it.`, "dim");
+        }
+        if (mode === "motion" && t.scan.ours) {
+          if (keepOrient && kind === "stab") other = await sourceFlipSteps(t.scan.ours.rotation, t.inPoint);
+          if (other) log(`${t.name}: its REDFlipper Transform flip stays; the new rotation corrects for it.`, "dim");
+          else stripTransform.push(t);
+        }
+        if (kind === "stab") t.plan = lessFlips(keepOrient ? keepPlan(t.plan, frameOf(t.inPoint, t.result)) : t.plan, [steps, other], t.result.fpsNum, t.result.fpsDen);
       }
     }
   }
@@ -1642,9 +1665,8 @@ async function analyseAndFlip() {
   if (stabilize && mode !== "source") {
     for (const u of units) {
       if (!u.item || u.plan.kind !== "stab") continue;
-      const toFrame = (tt) => Math.round(Number(ticksOf(tt)) * u.result.fpsNum / (u.result.fpsDen * Number(TICKS_PER_SEC)));
       const handle = Math.round(STAB_HANDLE_S * u.result.fpsNum / u.result.fpsDen);
-      const from = toFrame(u.inPoint) - handle, to = u.outPoint ? toFrame(u.outPoint) + handle : Infinity;
+      const from = frameOf(u.inPoint, u.result) - handle, to = u.outPoint ? frameOf(u.outPoint, u.result) + handle : Infinity;
       const keys = u.plan.keys.filter((k) => k.frame >= from && k.frame <= to);
       if (keys.length >= 2 && keys.length < u.plan.keys.length) u.plan = { ...u.plan, keys };
     }
@@ -1745,7 +1767,7 @@ async function analyseAndFlip() {
     const existing = (await keyTimes(t, which))
       .map((time) => ({ ticks: ticksOf(time), at: Number(ticksOf(time)) })).sort((x, y) => x.at - y.at);
     let allFound = true, j = 0;
-    for (const p of planned) {
+    for (const [i, p] of planned.entries()) {
       while (j < existing.length && existing[j].at < p - halfFrame) j++;
       // nearest of the candidates within half a frame
       let best = -1;
@@ -1753,7 +1775,7 @@ async function analyseAndFlip() {
         if (best < 0 || Math.abs(existing[k].at - p) < Math.abs(existing[best].at - p)) best = k;
       }
       if (best < 0) allFound = false;
-      else { existing[best].ours = true; j = best + 1; }
+      else { existing[best].ours = true; existing[best].key = keys[i]; j = best + 1; }
     }
     if (!allFound) log(`${t.name}: ${which === "scale" ? "Scale " : ""}keyframes didn't land where expected, please check this clip`, "warn");
     return existing.filter((e) => e.ours || allFound);
@@ -1807,9 +1829,10 @@ async function analyseAndFlip() {
       if (r === true) {
         // Stabilizing keys every frame, so every frame shows its keyed value whatever the
         // interpolation: only stray keys are removed, which skips thousands of steps per clip (2.6.11).
-        const plan = (await interpPlan(t)).filter((e) => !(e.ours && t.plan.kind === "stab")), mode2 = interpOf(t);
+        // The few keys before a 180° step (correcting a flip kept elsewhere) get Hold (2.7.0).
+        const plan = (await interpPlan(t)).filter((e) => !(e.ours && t.plan.kind === "stab" && !(e.key && e.key.hold))), mode2 = interpOf(t);
         r = await inBatches(t, "set keyframe interpolation", plan.length, (a, b) => plan.slice(a, b).map((e) => (e.ours
-          ? t.rotation.createSetInterpolationAtKeyframeAction(tickTime(e.ticks), mode2, false)
+          ? t.rotation.createSetInterpolationAtKeyframeAction(tickTime(e.ticks), e.key && e.key.hold ? HOLD : mode2, false)
           : t.rotation.createRemoveKeyframeAction(tickTime(e.ticks), false))));
       }
     } catch (e) {
