@@ -255,10 +255,13 @@ function toggleLogPlain() {
 }
 
 // A new run jumps the log and the panel to the bottom, and the log sticks there again.
+// The first line of every run names the plugin version (read from the manifest at startup).
+let pluginVersion = "";
 function startRun(label) {
   logSticky = true;
   if (logPlain) toggleLogPlain();
   if ($("log").childNodes.length) log(" ");
+  if (pluginVersion) log(`REDFlipper v${pluginVersion}`, "dim");
   log(`── ${label} · ${new Date().toLocaleTimeString()} ──`, "dim");
 }
 
@@ -2057,7 +2060,7 @@ async function removeRotation() {
 (async () => {
   try {
     const m = JSON.parse(await fs.readFile("plugin:/manifest.json", { encoding: "utf-8" }));
-    if (m && m.version) $("version").textContent = `v${m.version}`;
+    if (m && m.version) { pluginVersion = m.version; $("version").textContent = `v${m.version}`; }
   } catch (e) { /* version label is optional */ }
 })();
 
